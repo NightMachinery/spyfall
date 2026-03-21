@@ -5,6 +5,7 @@ class Player {
 		this.name = "";
 		this.connected = true;
 		this.disconnectTimeout = null;
+		this.observer = false;
 		this.reset();
 	}
 
@@ -19,15 +20,17 @@ class Player {
 		this.disconnectTimeout = null;
 	};
 
-	getPublicInfo = (isCreator = false) => ({
+	getPublicInfo = (isCreator = false, isAdmin = false) => ({
 		name: this.name,
 		isFirst: this.isFirst,
 		connected: this.connected,
 		isCreator,
+		isAdmin,
+		isObserver: this.observer,
 	});
 
-	getPrivateInfo = (isCreator = false) => ({
-		...this.getPublicInfo(isCreator),
+	getPrivateInfo = (isCreator = false, isAdmin = false) => ({
+		...this.getPublicInfo(isCreator, isAdmin),
 		role: this.role,
 	});
 }

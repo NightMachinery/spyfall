@@ -26,9 +26,10 @@ const InGame = ({ gameState, socket, isRocketcrab }) => {
 	const t = useI18n();
 	const lang = useCurrentLocale();
 	const isSpy = me.role === "spy";
+	const isObserver = Boolean(me.isObserver);
 	const isCustomRound = roundMode === "custom";
 	const firstPlayer = players.find((player) => player.isFirst);
-	const canManageRoom = Boolean(me.isCreator);
+	const canManageRoom = Boolean(me.isAdmin);
 
 	useEffect(() => {
 		logEvent("player-roundCount", gameState.currentRoundNum + 1);
@@ -97,12 +98,18 @@ const InGame = ({ gameState, socket, isRocketcrab }) => {
 
 			<HideableContainer title={"Your Role"} initialHidden={false}>
 				<div className="status-container-content">
-					{isSpy && (
+					{isObserver && (
+						<div className="player-status player-status-not-spy">
+							You are observing this round. An admin can promote you into the
+							round as a non-spy player.
+						</div>
+					)}
+					{!isObserver && isSpy && (
 						<div className="player-status player-status-spy">
 							{t("ui.you are the spy")}
 						</div>
 					)}
-					{!isSpy && (
+					{!isObserver && !isSpy && (
 						<>
 							<div
 								className="player-status player-status-not-spy"
@@ -122,9 +129,11 @@ const InGame = ({ gameState, socket, isRocketcrab }) => {
 								</div>
 							)}
 
-							{!isCustomRound && (
+							{!isCustomRound && me.role && (
 								<div className="current-role">
-									<div className="current-role-header">{t("ui.your role")}: </div>
+									<div className="current-role-header">
+										{t("ui.your role")}:{" "}
+									</div>
 									<div className="current-role-name">{t(me.role)}</div>
 								</div>
 							)}
@@ -133,7 +142,9 @@ const InGame = ({ gameState, socket, isRocketcrab }) => {
 				</div>
 			</HideableContainer>
 
-			{me.isFirst && <div className="red-text">You will ask the first question.</div>}
+			{me.isFirst && (
+				<div className="red-text">You will ask the first question.</div>
+			)}
 			{!me.isFirst && firstPlayer && (
 				<div>The first question will be asked by {firstPlayer.name}.</div>
 			)}
@@ -152,6 +163,10 @@ const InGame = ({ gameState, socket, isRocketcrab }) => {
 					<StrikeableBox key={i}>
 						{player.name && player.name}
 						{player.isCreator && <strong> (creator)</strong>}
+						{player.isAdmin && !player.isCreator && (
+							<strong> (acting admin)</strong>
+						)}
+						{player.isObserver && <strong> (observer)</strong>}
 						{!player.name && <i>Joining...</i>}
 						{player.isFirst && (
 							<div
@@ -160,6 +175,19 @@ const InGame = ({ gameState, socket, isRocketcrab }) => {
 							></div>
 						)}
 						{!player.connected && <i> (Disconnected)</i>}
+						{canManageRoom &&
+							player.isObserver &&
+							player.connected &&
+							player.name && (
+								<div>
+									<button
+										className="btn-small"
+										onClick={() => socket.emit("promoteObserver", player.name)}
+									>
+										Promote into round
+									</button>
+								</div>
+							)}
 					</StrikeableBox>
 				))}
 			</ul>
@@ -223,9 +251,14 @@ const QuestionHelper = ({
 	}, [activeQuestion]);
 
 	const connectedTargets = players.filter(
-		(player) => player.name && player.connected && player.name !== me.name
+		(player) =>
+			player.name &&
+			player.connected &&
+			!player.isObserver &&
+			player.name !== me.name,
 	);
-	const canAnswer = activeQuestion?.targetName === me.name;
+	const isObserver = Boolean(me.isObserver);
+	const canAnswer = !isObserver && activeQuestion?.targetName === me.name;
 
 	const submitPrompt = () => {
 		socket.emit("submitQuestionPrompt", {
@@ -245,7 +278,13 @@ const QuestionHelper = ({
 	return (
 		<HideableContainer title={"Question Helper"} initialHidden={false}>
 			<div className="status-container-content question-helper">
-				{!activeQuestion && (
+				{isObserver && (
+					<div className="settings-help">
+						Observers cannot ask or answer questions until they are promoted
+						into the round.
+					</div>
+				)}
+				{!activeQuestion && !isObserver && (
 					<>
 						<div className="settings-help">
 							Enter 2 possible questions, choose who they are directed to, and

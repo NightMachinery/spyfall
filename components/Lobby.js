@@ -14,7 +14,10 @@ const Lobby = ({ gameState, socket, isRocketcrab }) => {
 		...player,
 		isMe: player.name === me.name,
 	}));
-	const canManageRoom = Boolean(me.isCreator);
+	const canManageRoom = Boolean(me.isAdmin);
+	const creatorPresent = gameState.players.some(
+		(player) => player.isCreator && player.connected,
+	);
 
 	const handleStartGame = () => {
 		socket.emit("startGame");
@@ -34,10 +37,20 @@ const Lobby = ({ gameState, socket, isRocketcrab }) => {
 
 			<hr />
 
-			{canManageRoom ? (
+			{me.isCreator && (
 				<div className="room-creator-note">You are the room creator.</div>
-			) : (
-				<div className="room-creator-note">Only the room creator can manage this room.</div>
+			)}
+			{!me.isCreator && canManageRoom && (
+				<div className="room-creator-note">
+					You are the acting admin while the creator is away.
+				</div>
+			)}
+			{!canManageRoom && (
+				<div className="room-creator-note">
+					{creatorPresent
+						? "Only the room creator can manage this room."
+						: "Only the current admin can manage this room."}
+				</div>
 			)}
 
 			<ol className="lobby-player-list">
@@ -46,6 +59,9 @@ const Lobby = ({ gameState, socket, isRocketcrab }) => {
 						<span>
 							{player.name}
 							{player.isCreator && <strong> (creator)</strong>}
+							{player.isAdmin && !player.isCreator && (
+								<strong> (acting admin)</strong>
+							)}
 						</span>
 						{!player.name && <i>Joining...</i>}
 						{player.name && !player.connected && <i> (Disconnected)</i>}

@@ -2,12 +2,14 @@ import React, { useMemo, useState, useEffect } from "react";
 
 const Settings = ({ gameState, socket }) => {
 	const { settings, AVAILABLE_LOCATION_PACKS, players, me } = gameState;
-	const canEdit = Boolean(me.isCreator);
-	const namedPlayerCount = players.filter((player) => player.name).length;
+	const canEdit = Boolean(me.isAdmin);
+	const namedPlayerCount = players.filter(
+		(player) => player.name && !player.isObserver,
+	).length;
 	const maxSpyCount = Math.max(1, Math.max(namedPlayerCount, 2) - 1);
 
 	const [customWordsText, setCustomWordsText] = useState(
-		settings.customWordsText || ""
+		settings.customWordsText || "",
 	);
 
 	useEffect(() => {
@@ -22,7 +24,7 @@ const Settings = ({ gameState, socket }) => {
 				.split("\n")
 				.map((word) => word.trim())
 				.filter(Boolean).length,
-		[customWordsText]
+		[customWordsText],
 	);
 
 	return (
@@ -32,7 +34,9 @@ const Settings = ({ gameState, socket }) => {
 			}}
 		>
 			{!canEdit && (
-				<div className="settings-note">Only the room creator can edit settings.</div>
+				<div className="settings-note">
+					Only the current admin can edit settings.
+				</div>
 			)}
 
 			<TimeLimit
@@ -276,7 +280,7 @@ const CustomWordSettings = ({
 			<div style={{ marginTop: "0.5em" }}>
 				{disabled && (
 					<div className="settings-help" style={{ marginBottom: "0.5em" }}>
-						The room creator configured a custom word list for this room.
+						The current admin configured a custom word list for this room.
 					</div>
 				)}
 				<label htmlFor="custom-words-text">Custom words (one per line):</label>
@@ -311,8 +315,8 @@ const CustomWordSettings = ({
 					}
 				/>
 				<div className="settings-help">
-					Roles are hidden in this mode. Everyone uses the sampled word subset as
-					the reference list.
+					Roles are hidden in this mode. Everyone uses the sampled word subset
+					as the reference list.
 				</div>
 			</div>
 		)}

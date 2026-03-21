@@ -17,6 +17,7 @@ class Game {
 
 		this.players = [];
 		this.creatorAuthToken = null;
+		this.tempAdminAuthTokens = new Set();
 		this.status = "lobby-waiting"; // lobby-waiting, lobby-ready, ingame
 		this.roundMode = "pack";
 		this.location = null;
@@ -61,6 +62,7 @@ class Game {
 		const player = this.addPlayer(socket, authToken);
 		this.attachListenersToPlayer(player);
 
+		this.refreshAdminState();
 		this.normalizeSettings();
 		this.checkIfReady();
 		this.sendNewStateToAllPlayers();
@@ -109,28 +111,54 @@ class Game {
 	}
 
 	createPlayerWhileInGame(player) {
-		if (!this.location) return;
-
-		if (this.roundMode === "custom") {
-			player.role = null;
-			return;
-		}
-
-		if (this.location.isAllSpyLocation) {
-			player.role = "spy";
-			return;
-		}
-
-		const defaultRole =
-			this.location.roles?.[this.location.roles.length - 1] || null;
-		player.role = defaultRole;
+		player.observer = true;
+		player.role = null;
 	}
 
 	findPlayerByAuthToken = (authToken) =>
 		this.players.find((player) => player.authToken === authToken);
 
+	getConnectedPlayers = () => this.players.filter((player) => player.connected);
+
+	creatorPlayerConnected = () =>
+		this.players.some((player) => this.isCreator(player) && player.connected);
+
+	pickFallbackAdmin = () => {
+		const connectedPlayers = this.getConnectedPlayers().filter(
+			(player) => !this.isCreator(player),
+		);
+		if (connectedPlayers.length === 0) return null;
+
+		const namedPlayers = connectedPlayers.filter((player) => player.name);
+		const adminPool = namedPlayers.length > 0 ? namedPlayers : connectedPlayers;
+		return adminPool[Math.floor(Math.random() * adminPool.length)];
+	};
+
+	refreshAdminState = () => {
+		if (this.creatorPlayerConnected()) {
+			this.tempAdminAuthTokens = new Set();
+			return;
+		}
+
+		const connectedTempAdmin = this.players.find(
+			(player) =>
+				player.connected &&
+				player.authToken &&
+				this.tempAdminAuthTokens.has(player.authToken),
+		);
+		if (connectedTempAdmin) {
+			this.tempAdminAuthTokens = new Set([connectedTempAdmin.authToken]);
+			return;
+		}
+
+		const fallbackAdmin = this.pickFallbackAdmin();
+		this.tempAdminAuthTokens = fallbackAdmin?.authToken
+			? new Set([fallbackAdmin.authToken])
+			: new Set();
+	};
+
 	removePlayerByName = (actor, theName) => {
-		if (!this.isCreator(actor)) {
+		if (!this.isAdmin(actor)) {
 			this.emitUnauthorized(actor.socket);
 			return;
 		}
@@ -156,6 +184,7 @@ class Game {
 			this.scheduleDisconnectedPlayerCleanup(player);
 		}
 
+		this.refreshAdminState();
 		if (this.status !== "ingame") {
 			this.normalizeSettings();
 			this.checkIfReady();
@@ -172,6 +201,7 @@ class Game {
 
 			this.deletePlayer(player);
 			this.cleanupQuestionStateForPlayer(player);
+			this.refreshAdminState();
 			this.normalizeSettings();
 			this.checkIfReady();
 			this.sendNewStateToAllPlayers();
@@ -194,6 +224,8 @@ class Game {
 		if (index > -1) {
 			this.players.splice(index, 1);
 		}
+
+		this.refreshAdminState();
 	};
 
 	forceRemovePlayer = (player) => {
@@ -250,21 +282,24 @@ class Game {
 		socket.on("name", this.setName(player));
 		socket.on("startGame", this.startGame(player));
 		socket.on("removePlayer", (name) => this.removePlayerByName(player, name));
+		socket.on("promoteObserver", (name) =>
+			this.promoteObserverByName(player, name),
+		);
 		socket.on("disconnect", this.handleDisconnect(player));
 		socket.on("togglePause", () => this.togglePauseTimer(player));
 		socket.on("endGame", () => this.endGame(player));
 		socket.on("updateSettings", (settings) =>
-			this.updateSettings(player, settings)
+			this.updateSettings(player, settings),
 		);
 		socket.on("clearName", () => this.clearName(player)());
 		socket.on("submitQuestionPrompt", (payload) =>
-			this.submitQuestionPrompt(player, payload)
+			this.submitQuestionPrompt(player, payload),
 		);
 		socket.on("chooseQuestionOption", (questionIndex) =>
-			this.chooseQuestionOption(player, questionIndex)
+			this.chooseQuestionOption(player, questionIndex),
 		);
 		socket.on("submitQuestionAnswer", (answer) =>
-			this.submitQuestionAnswer(player, answer)
+			this.submitQuestionAnswer(player, answer),
 		);
 	};
 
@@ -301,15 +336,16 @@ class Game {
 	checkIfReady = () => {
 		if (this.status === "ingame") return false;
 
+		const activePlayers = this.players.filter((player) => !player.observer);
 		const everyoneHasName =
-			this.players.length >= 2 &&
-			this.players.reduce(
+			activePlayers.length >= 2 &&
+			activePlayers.reduce(
 				(answer, player) => Boolean(player.name) && answer,
-				true
+				true,
 			);
-		const everyoneConnected = this.players.reduce(
+		const everyoneConnected = activePlayers.reduce(
 			(answer, player) => player.connected && answer,
-			true
+			true,
 		);
 
 		const isReady = everyoneHasName && everyoneConnected;
@@ -319,7 +355,7 @@ class Game {
 	};
 
 	startGame = (player) => () => {
-		if (!this.isCreator(player)) {
+		if (!this.isAdmin(player)) {
 			this.emitUnauthorized(player.socket);
 			return;
 		}
@@ -342,7 +378,10 @@ class Game {
 	prepareRound = (player) => {
 		const roundPlayers = this.getRoundPlayers();
 		if (roundPlayers.length < 2) {
-			this.emitActionError(player.socket, "At least 2 connected players are required.");
+			this.emitActionError(
+				player.socket,
+				"At least 2 connected players are required.",
+			);
 			return false;
 		}
 
@@ -372,7 +411,7 @@ class Game {
 	};
 
 	endGame = (player) => {
-		if (!this.isCreator(player)) {
+		if (!this.isAdmin(player)) {
 			this.emitUnauthorized(player.socket);
 			return;
 		}
@@ -388,8 +427,12 @@ class Game {
 		this.clearTimer();
 
 		this.removeDisconnectedPlayers();
-		this.players.forEach((thePlayer) => thePlayer.reset());
+		this.players.forEach((thePlayer) => {
+			thePlayer.observer = false;
+			thePlayer.reset();
+		});
 
+		this.refreshAdminState();
 		this.normalizeSettings();
 		this.checkIfReady();
 		this.sendNewStateToAllPlayers();
@@ -402,7 +445,7 @@ class Game {
 			if (allWords.length < 2) {
 				this.emitActionError(
 					player.socket,
-					"Custom word mode needs at least 2 words."
+					"Custom word mode needs at least 2 words.",
 				);
 				return false;
 			}
@@ -410,7 +453,7 @@ class Game {
 			const subsetSize = clamp(
 				this.settings.customSubsetSize,
 				2,
-				allWords.length
+				allWords.length,
 			);
 			const shuffledWords = shuffleArray(allWords.slice());
 			const subset = shuffledWords.slice(0, subsetSize);
@@ -429,7 +472,7 @@ class Game {
 		const { locationPack, includeAllSpy } = this.settings;
 		const nextLocation = Locations.getRandomLocationFromPack(
 			locationPack,
-			includeAllSpy
+			includeAllSpy,
 		);
 
 		if (!nextLocation) {
@@ -441,7 +484,7 @@ class Game {
 		this.location = nextLocation;
 		this.locationList = Locations.getLocationListFromPack(
 			locationPack,
-			includeAllSpy
+			includeAllSpy,
 		);
 		return true;
 	};
@@ -525,12 +568,16 @@ class Game {
 	};
 
 	togglePauseTimer = (player) => {
-		if (!this.isCreator(player)) {
+		if (!this.isAdmin(player)) {
 			this.emitUnauthorized(player.socket);
 			return;
 		}
 
-		if (this.status !== "ingame" || this.timeLeft === null || this.timeLeft <= 0) {
+		if (
+			this.status !== "ingame" ||
+			this.timeLeft === null ||
+			this.timeLeft <= 0
+		) {
 			return;
 		}
 
@@ -539,13 +586,16 @@ class Game {
 	};
 
 	updateSettings = (player, partialSettings = {}) => {
-		if (!this.isCreator(player)) {
+		if (!this.isAdmin(player)) {
 			this.emitUnauthorized(player.socket);
 			return;
 		}
 
 		if (this.status === "ingame") {
-			this.emitActionError(player.socket, "Room settings can only be changed in the lobby.");
+			this.emitActionError(
+				player.socket,
+				"Room settings can only be changed in the lobby.",
+			);
 			return;
 		}
 
@@ -570,7 +620,7 @@ class Game {
 
 	normalizeSettings = (inputSettings = this.settings) => {
 		const availablePackIds = new Set(
-			Locations.AVAILABLE_LOCATION_PACKS.map(({ id }) => id)
+			Locations.AVAILABLE_LOCATION_PACKS.map(({ id }) => id),
 		);
 		const playerCap = Math.max(this.players.length, 2) - 1;
 		const safePlayerCap = Math.max(1, playerCap);
@@ -581,8 +631,16 @@ class Game {
 				: "spyfall1",
 			timeLimit: clamp(parseInteger(inputSettings.timeLimit, 8), 0, 60),
 			includeAllSpy: Boolean(inputSettings.includeAllSpy),
-			spyCountMin: clamp(parseInteger(inputSettings.spyCountMin, 1), 1, safePlayerCap),
-			spyCountMax: clamp(parseInteger(inputSettings.spyCountMax, 1), 1, safePlayerCap),
+			spyCountMin: clamp(
+				parseInteger(inputSettings.spyCountMin, 1),
+				1,
+				safePlayerCap,
+			),
+			spyCountMax: clamp(
+				parseInteger(inputSettings.spyCountMax, 1),
+				1,
+				safePlayerCap,
+			),
 			spyCountDistribution:
 				inputSettings.spyCountDistribution === "geometric"
 					? "geometric"
@@ -594,13 +652,13 @@ class Game {
 			customSubsetSize: clamp(
 				parseInteger(inputSettings.customSubsetSize, 12),
 				2,
-				100
+				100,
 			),
 		};
 
 		if (nextSettings.spyCountMin > nextSettings.spyCountMax) {
 			const sorted = [nextSettings.spyCountMin, nextSettings.spyCountMax].sort(
-				(a, b) => a - b
+				(a, b) => a - b,
 			);
 			nextSettings.spyCountMin = sorted[0];
 			nextSettings.spyCountMax = sorted[1];
@@ -611,7 +669,14 @@ class Game {
 	};
 
 	submitQuestionPrompt = (player, payload = {}) => {
-		if (this.status !== "ingame" || !player.name || !player.connected) return;
+		if (
+			this.status !== "ingame" ||
+			!player.name ||
+			!player.connected ||
+			player.observer
+		) {
+			return;
+		}
 		if (this.activeQuestion) {
 			this.emitActionError(player.socket, "Finish the current question first.");
 			return;
@@ -622,7 +687,12 @@ class Game {
 		const optionTwo = sanitizeFreeText(payload.optionTwo, MAX_QUESTION_LENGTH);
 		const targetPlayer = this.findPlayerByName(targetName);
 
-		if (!targetPlayer || !targetPlayer.connected || targetPlayer === player) {
+		if (
+			!targetPlayer ||
+			!targetPlayer.connected ||
+			targetPlayer === player ||
+			targetPlayer.observer
+		) {
 			this.emitActionError(player.socket, "Choose another connected player.");
 			return;
 		}
@@ -644,6 +714,7 @@ class Game {
 
 	chooseQuestionOption = (player, questionIndex) => {
 		if (!this.activeQuestion) return;
+		if (player.observer) return;
 		if (player.name !== this.activeQuestion.targetName) return;
 
 		const nextIndex = parseInteger(questionIndex, -1);
@@ -655,6 +726,7 @@ class Game {
 
 	submitQuestionAnswer = (player, answer) => {
 		if (!this.activeQuestion) return;
+		if (player.observer) return;
 		if (player.name !== this.activeQuestion.targetName) return;
 		if (this.activeQuestion.selectedOptionIndex === null) return;
 
@@ -673,6 +745,41 @@ class Game {
 		});
 		this.activeQuestion = null;
 		this.sendNewStateToAllPlayers();
+	};
+
+	promoteObserverByName = (actor, theName) => {
+		if (!this.isAdmin(actor)) {
+			this.emitUnauthorized(actor.socket);
+			return;
+		}
+
+		if (this.status !== "ingame") {
+			this.emitActionError(
+				actor.socket,
+				"Observers can only be promoted during a round.",
+			);
+			return;
+		}
+
+		const player = this.findPlayerByName(theName);
+		if (!player || !player.connected || !player.observer) return;
+
+		this.promoteObserver(player);
+		this.sendNewStateToAllPlayers();
+	};
+
+	promoteObserver = (player) => {
+		player.observer = false;
+		player.isFirst = false;
+
+		if (!this.location || this.roundMode === "custom") {
+			player.role = null;
+			return;
+		}
+
+		const defaultRole =
+			this.location.roles?.[this.location.roles.length - 1] || null;
+		player.role = defaultRole;
 	};
 
 	getParsedCustomWords = () => {
@@ -702,18 +809,27 @@ class Game {
 	};
 
 	getRoundPlayers = () =>
-		this.players.filter((player) => player.name && player.connected);
+		this.players.filter(
+			(player) => player.name && player.connected && !player.observer,
+		);
 
 	isCreator = (player) =>
 		Boolean(
 			player &&
 				player.authToken &&
 				this.creatorAuthToken &&
-				player.authToken === this.creatorAuthToken
+				player.authToken === this.creatorAuthToken,
 		);
 
+	isAdmin = (player) => {
+		if (!player || !player.authToken) return false;
+		if (this.isCreator(player)) return Boolean(player.connected);
+		if (this.creatorPlayerConnected()) return false;
+		return this.tempAdminAuthTokens.has(player.authToken);
+	};
+
 	emitUnauthorized = (socket) =>
-		this.emitActionError(socket, "Only the room creator can do that.");
+		this.emitActionError(socket, "Only the current admin can do that.");
 
 	emitActionError = (socket, message) => {
 		if (!socket) return;
@@ -722,13 +838,13 @@ class Game {
 
 	getVisibleLocationForPlayer = (player) => {
 		if (this.status !== "ingame") return this.location;
-		if (!this.location || player.role === "spy") return null;
+		if (!this.location || player.role === "spy" || player.observer) return null;
 		return this.location;
 	};
 
 	getSettingsForPlayer = (player) => {
 		const settings = { ...this.settings };
-		if (!this.isCreator(player)) {
+		if (!this.isAdmin(player)) {
 			delete settings.customWordsText;
 		}
 		return settings;
@@ -748,11 +864,13 @@ class Game {
 		currentRoundNum: this.currentRoundNum,
 		questionHistory: this.questionHistory,
 		activeQuestion: this.activeQuestion,
-		me: player.getPrivateInfo(this.isCreator(player)),
+		me: player.getPrivateInfo(this.isCreator(player), this.isAdmin(player)),
 	});
 
 	getPlayers = () =>
-		this.players.map((player) => player.getPublicInfo(this.isCreator(player)));
+		this.players.map((player) =>
+			player.getPublicInfo(this.isCreator(player), this.isAdmin(player)),
+		);
 }
 
 const clamp = (value, min, max) => Math.min(Math.max(value, min), max);
