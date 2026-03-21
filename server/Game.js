@@ -19,6 +19,7 @@ class Game {
 		this.creatorAuthToken = null;
 		this.tempAdminAuthTokens = new Set();
 		this.status = "lobby-waiting"; // lobby-waiting, lobby-ready, ingame
+		this.roundPhase = "idle";
 		this.roundMode = "pack";
 		this.location = null;
 		this.locationList = [];
@@ -32,6 +33,7 @@ class Game {
 			locationPack: "spyfall1",
 			timeLimit: 8, // 8 minutes
 			includeAllSpy: false,
+			allowSpyRefusal: true,
 			spyCountMin: 1,
 			spyCountMax: 1,
 			spyCountDistribution: "uniform",
@@ -39,6 +41,7 @@ class Game {
 			customWordsText: "",
 			customSubsetSize: 12,
 		};
+		this.spyOfferState = null;
 
 		// delete this game if it does not have players after 60 seconds
 		setTimeout(() => this.deleteGameIfEmpty(), 60 * 1000);
@@ -64,7 +67,11 @@ class Game {
 
 		this.refreshAdminState();
 		this.normalizeSettings();
-		this.checkIfReady();
+		if (this.roundPhase === "offering-spies") {
+			this.advanceSpyOfferFlow();
+		} else {
+			this.checkIfReady();
+		}
 		this.sendNewStateToAllPlayers();
 	}
 
@@ -185,7 +192,9 @@ class Game {
 		}
 
 		this.refreshAdminState();
-		if (this.status !== "ingame") {
+		if (this.roundPhase === "offering-spies") {
+			this.advanceSpyOfferFlow();
+		} else if (this.status !== "ingame") {
 			this.normalizeSettings();
 			this.checkIfReady();
 		}
@@ -202,8 +211,12 @@ class Game {
 			this.deletePlayer(player);
 			this.cleanupQuestionStateForPlayer(player);
 			this.refreshAdminState();
-			this.normalizeSettings();
-			this.checkIfReady();
+			if (this.roundPhase === "offering-spies") {
+				this.advanceSpyOfferFlow();
+			} else {
+				this.normalizeSettings();
+				this.checkIfReady();
+			}
 			this.sendNewStateToAllPlayers();
 			this.deleteGameIfEmpty();
 		}, DISCONNECTED_PLAYER_TTL_MS);
@@ -242,6 +255,9 @@ class Game {
 		}
 
 		this.deletePlayer(player);
+		if (this.roundPhase === "offering-spies") {
+			this.advanceSpyOfferFlow();
+		}
 		this.deleteGameIfEmpty();
 	};
 
@@ -288,6 +304,8 @@ class Game {
 		socket.on("disconnect", this.handleDisconnect(player));
 		socket.on("togglePause", () => this.togglePauseTimer(player));
 		socket.on("endGame", () => this.endGame(player));
+		socket.on("acceptSpyOffer", () => this.acceptSpyOffer(player));
+		socket.on("refuseSpyOffer", () => this.refuseSpyOffer(player));
 		socket.on("updateSettings", (settings) =>
 			this.updateSettings(player, settings),
 		);
@@ -369,7 +387,6 @@ class Game {
 		const roundStarted = this.prepareRound(player);
 		if (!roundStarted) return;
 
-		this.startTimer();
 		this.status = "ingame";
 		this.currentRoundNum++;
 		this.sendNewStateToAllPlayers();
@@ -386,6 +403,10 @@ class Game {
 		}
 
 		this.clearTimer();
+		this.roundPhase = "idle";
+		this.resetSpyOfferState();
+		this.timeLeft = null;
+		this.timePaused = false;
 		this.questionHistory = [];
 		this.activeQuestion = null;
 		this.players.forEach((thePlayer) => thePlayer.reset());
@@ -397,15 +418,24 @@ class Game {
 
 		if (this.location?.isAllSpyLocation) {
 			this.setAllAsSpy(roundPlayers);
+			this.roundPhase = "active";
+			this.startTimer();
 			return true;
 		}
 
 		const spyCount = this.pickSpyCount(roundPlayers.length);
+		if (this.settings.allowSpyRefusal) {
+			return this.startSpyOfferFlow(roundPlayers, spyCount);
+		}
+
 		this.assignSpies(roundPlayers, spyCount);
 
 		if (this.roundMode !== "custom") {
 			this.assignRoles(roundPlayers);
 		}
+
+		this.roundPhase = "active";
+		this.startTimer();
 
 		return true;
 	};
@@ -417,6 +447,7 @@ class Game {
 		}
 
 		this.status = "lobby-waiting";
+		this.roundPhase = "idle";
 		this.roundMode = "pack";
 		this.location = null;
 		this.locationList = [];
@@ -424,6 +455,7 @@ class Game {
 		this.timePaused = false;
 		this.questionHistory = [];
 		this.activeQuestion = null;
+		this.resetSpyOfferState();
 		this.clearTimer();
 
 		this.removeDisconnectedPlayers();
@@ -493,6 +525,190 @@ class Game {
 		const shuffledPlayers = shuffleArray(players.slice());
 		for (const player of shuffledPlayers.slice(0, spyCount)) {
 			player.role = "spy";
+		}
+	};
+
+	startSpyOfferFlow = (players, spyCount) => {
+		this.roundPhase = "offering-spies";
+		this.spyOfferState = {
+			targetSpyCount: spyCount,
+			offerOrderAuthTokens: shuffleArray(players.map((player) => player.authToken)),
+			refusedAuthTokens: new Set(),
+			acceptedAuthTokens: new Set(),
+			currentOfferAuthToken: null,
+		};
+		this.syncPendingSpyRoles();
+		return this.advanceSpyOfferFlow();
+	};
+
+	advanceSpyOfferFlow = () => {
+		if (this.roundPhase !== "offering-spies" || !this.spyOfferState) return false;
+
+		const roundPlayers = this.getRoundPlayers();
+		if (roundPlayers.length < 2) {
+			this.abortPendingRound("At least 2 connected players are required.");
+			return false;
+		}
+
+		const playerMap = new Map(
+			roundPlayers.map((player) => [player.authToken, player]),
+		);
+		const { acceptedAuthTokens, refusedAuthTokens, offerOrderAuthTokens } =
+			this.spyOfferState;
+
+		for (const authToken of [...acceptedAuthTokens]) {
+			if (!playerMap.has(authToken)) {
+				acceptedAuthTokens.delete(authToken);
+			}
+		}
+		for (const authToken of [...refusedAuthTokens]) {
+			if (!playerMap.has(authToken)) {
+				refusedAuthTokens.delete(authToken);
+			}
+		}
+
+		const remainingSpySlots =
+			this.spyOfferState.targetSpyCount - acceptedAuthTokens.size;
+		if (remainingSpySlots <= 0) {
+			this.finalizeSpyOfferFlow();
+			return true;
+		}
+
+		const remainingCandidates = offerOrderAuthTokens.filter(
+			(authToken) =>
+				playerMap.has(authToken) &&
+				!acceptedAuthTokens.has(authToken) &&
+				!refusedAuthTokens.has(authToken),
+		);
+
+		if (remainingCandidates.length < remainingSpySlots) {
+			this.abortPendingRound(
+				"Not enough connected players remain to finish assigning spies.",
+			);
+			return false;
+		}
+
+		if (remainingCandidates.length === remainingSpySlots) {
+			for (const authToken of remainingCandidates) {
+				acceptedAuthTokens.add(authToken);
+			}
+			this.syncPendingSpyRoles();
+			this.finalizeSpyOfferFlow();
+			return true;
+		}
+
+		const currentOfferAuthToken = this.spyOfferState.currentOfferAuthToken;
+		if (!remainingCandidates.includes(currentOfferAuthToken)) {
+			this.spyOfferState.currentOfferAuthToken = remainingCandidates[0] || null;
+		}
+
+		this.syncPendingSpyRoles();
+		return true;
+	};
+
+	finalizeSpyOfferFlow = () => {
+		if (!this.spyOfferState) return;
+
+		const roundPlayers = this.getRoundPlayers();
+		const roundPlayerAuthTokens = new Set(
+			roundPlayers.map((player) => player.authToken),
+		);
+		const acceptedAuthTokens = new Set(
+			[...this.spyOfferState.acceptedAuthTokens].filter((authToken) =>
+				roundPlayerAuthTokens.has(authToken),
+			),
+		);
+
+		roundPlayers.forEach((player) => {
+			player.role = acceptedAuthTokens.has(player.authToken) ? "spy" : null;
+		});
+
+		if (acceptedAuthTokens.size !== this.spyOfferState.targetSpyCount) {
+			this.abortPendingRound(
+				"Not enough connected players remain to finish assigning spies.",
+			);
+			return;
+		}
+
+		if (this.roundMode !== "custom") {
+			this.assignRoles(roundPlayers);
+		}
+
+		this.resetSpyOfferState();
+		this.roundPhase = "active";
+		this.startTimer();
+	};
+
+	resetSpyOfferState = () => {
+		this.spyOfferState = null;
+	};
+
+	syncPendingSpyRoles = () => {
+		const acceptedAuthTokens = this.spyOfferState?.acceptedAuthTokens || new Set();
+		this.players.forEach((player) => {
+			if (player.observer) {
+				player.role = null;
+				return;
+			}
+
+			player.role = acceptedAuthTokens.has(player.authToken) ? "spy" : null;
+		});
+	};
+
+	getSpyOfferForPlayer = (player) => {
+		if (this.roundPhase !== "offering-spies" || !this.spyOfferState) return null;
+		if (player.authToken !== this.spyOfferState.currentOfferAuthToken) return null;
+
+		return {
+			canRefuse: true,
+		};
+	};
+
+	acceptSpyOffer = (player) => {
+		if (this.roundPhase !== "offering-spies" || !this.spyOfferState) return;
+		if (player.observer || !player.connected || !player.name) return;
+		if (player.authToken !== this.spyOfferState.currentOfferAuthToken) return;
+
+		this.spyOfferState.acceptedAuthTokens.add(player.authToken);
+		this.spyOfferState.currentOfferAuthToken = null;
+		this.advanceSpyOfferFlow();
+		this.sendNewStateToAllPlayers();
+	};
+
+	refuseSpyOffer = (player) => {
+		if (this.roundPhase !== "offering-spies" || !this.spyOfferState) return;
+		if (player.observer || !player.connected || !player.name) return;
+		if (player.authToken !== this.spyOfferState.currentOfferAuthToken) return;
+
+		this.spyOfferState.refusedAuthTokens.add(player.authToken);
+		this.spyOfferState.currentOfferAuthToken = null;
+		player.role = null;
+		this.advanceSpyOfferFlow();
+		this.sendNewStateToAllPlayers();
+	};
+
+	abortPendingRound = (message) => {
+		const roundWasVisible = this.status === "ingame";
+		this.roundPhase = "idle";
+		this.roundMode = "pack";
+		this.location = null;
+		this.locationList = [];
+		this.timeLeft = null;
+		this.timePaused = false;
+		this.questionHistory = [];
+		this.activeQuestion = null;
+		this.status = "lobby-waiting";
+		if (roundWasVisible && this.currentRoundNum > 0) {
+			this.currentRoundNum--;
+		}
+		this.resetSpyOfferState();
+		this.clearTimer();
+		this.players.forEach((player) => player.reset());
+		this.refreshAdminState();
+		this.normalizeSettings();
+		this.checkIfReady();
+		if (message) {
+			this.emitActionErrorToAll(message);
 		}
 	};
 
@@ -573,11 +789,7 @@ class Game {
 			return;
 		}
 
-		if (
-			this.status !== "ingame" ||
-			this.timeLeft === null ||
-			this.timeLeft <= 0
-		) {
+		if (!this.isRoundActive() || this.timeLeft === null || this.timeLeft <= 0) {
 			return;
 		}
 
@@ -605,6 +817,7 @@ class Game {
 				"locationPack",
 				"timeLimit",
 				"includeAllSpy",
+				"allowSpyRefusal",
 				"spyCountMin",
 				"spyCountMax",
 				"spyCountDistribution",
@@ -631,6 +844,7 @@ class Game {
 				: "spyfall1",
 			timeLimit: clamp(parseInteger(inputSettings.timeLimit, 8), 0, 60),
 			includeAllSpy: Boolean(inputSettings.includeAllSpy),
+			allowSpyRefusal: Boolean(inputSettings.allowSpyRefusal),
 			spyCountMin: clamp(
 				parseInteger(inputSettings.spyCountMin, 1),
 				1,
@@ -670,7 +884,7 @@ class Game {
 
 	submitQuestionPrompt = (player, payload = {}) => {
 		if (
-			this.status !== "ingame" ||
+			!this.isRoundActive() ||
 			!player.name ||
 			!player.connected ||
 			player.observer
@@ -713,6 +927,7 @@ class Game {
 	};
 
 	chooseQuestionOption = (player, questionIndex) => {
+		if (!this.isRoundActive()) return;
 		if (!this.activeQuestion) return;
 		if (player.observer) return;
 		if (player.name !== this.activeQuestion.targetName) return;
@@ -725,6 +940,7 @@ class Game {
 	};
 
 	submitQuestionAnswer = (player, answer) => {
+		if (!this.isRoundActive()) return;
 		if (!this.activeQuestion) return;
 		if (player.observer) return;
 		if (player.name !== this.activeQuestion.targetName) return;
@@ -753,7 +969,7 @@ class Game {
 			return;
 		}
 
-		if (this.status !== "ingame") {
+		if (!this.isRoundActive()) {
 			this.emitActionError(
 				actor.socket,
 				"Observers can only be promoted during a round.",
@@ -813,6 +1029,9 @@ class Game {
 			(player) => player.name && player.connected && !player.observer,
 		);
 
+	isRoundActive = () =>
+		this.status === "ingame" && this.roundPhase === "active";
+
 	isCreator = (player) =>
 		Boolean(
 			player &&
@@ -836,10 +1055,24 @@ class Game {
 		socket.emit("actionError", message);
 	};
 
+	emitActionErrorToAll = (message) => {
+		for (const player of this.players) {
+			if (!player.socket || !player.connected) continue;
+			this.emitActionError(player.socket, message);
+		}
+	};
+
 	getVisibleLocationForPlayer = (player) => {
 		if (this.status !== "ingame") return this.location;
+		if (!this.isRoundActive()) return null;
 		if (!this.location || player.role === "spy" || player.observer) return null;
 		return this.location;
+	};
+
+	getVisibleLocationListForPlayer = () => {
+		if (this.status !== "ingame") return this.locationList;
+		if (!this.isRoundActive()) return [];
+		return this.locationList;
 	};
 
 	getSettingsForPlayer = (player) => {
@@ -854,9 +1087,11 @@ class Game {
 		code: this.code,
 		players: this.getPlayers(),
 		status: this.status,
+		roundPhase: this.roundPhase,
 		roundMode: this.roundMode,
 		location: this.getVisibleLocationForPlayer(player),
-		locationList: this.locationList,
+		locationList: this.getVisibleLocationListForPlayer(player),
+		spyOffer: this.getSpyOfferForPlayer(player),
 		timeLeft: this.timeLeft,
 		timePaused: this.timePaused,
 		settings: this.getSettingsForPlayer(player),

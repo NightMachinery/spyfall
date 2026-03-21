@@ -61,6 +61,14 @@ const Settings = ({ gameState, socket }) => {
 				disabled={!canEdit || settings.customWordsEnabled}
 			/>
 
+			<AllowSpyRefusal
+				onSetAllowSpyRefusal={(allowSpyRefusal) =>
+					updateSettings({ allowSpyRefusal })
+				}
+				serverAllowSpyRefusal={settings.allowSpyRefusal}
+				disabled={!canEdit}
+			/>
+
 			<SpyCountSettings
 				settings={settings}
 				maxSpyCount={maxSpyCount}
@@ -195,6 +203,39 @@ const IncludeAllSpy = ({
 			<span className="label-body">
 				Enable ~2% chance all players are spies
 				{disabled && <span> (disabled in custom word mode)</span>}
+			</span>
+		</label>
+	);
+};
+
+const AllowSpyRefusal = ({
+	onSetAllowSpyRefusal,
+	serverAllowSpyRefusal,
+	disabled,
+}) => {
+	const [allowSpyRefusal, setAllowSpyRefusal] = useState(
+		serverAllowSpyRefusal,
+	);
+
+	const handleChange = (checked) => {
+		setAllowSpyRefusal(checked);
+		onSetAllowSpyRefusal(checked);
+	};
+
+	useEffect(() => {
+		setAllowSpyRefusal(serverAllowSpyRefusal);
+	}, [serverAllowSpyRefusal]);
+
+	return (
+		<label>
+			<input
+				type="checkbox"
+				onChange={({ target: { checked } }) => handleChange(checked)}
+				checked={allowSpyRefusal}
+				disabled={disabled}
+			/>
+			<span className="label-body">
+				Let players refuse being offered the spy role
 			</span>
 		</label>
 	);

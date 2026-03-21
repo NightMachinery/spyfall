@@ -17,6 +17,8 @@ const InGame = ({ gameState, socket, isRocketcrab }) => {
 		timeLeft: latestServerTimeLeft,
 		timePaused,
 		settings,
+		roundPhase,
+		spyOffer,
 		roundMode,
 		questionHistory,
 		activeQuestion,
@@ -28,6 +30,8 @@ const InGame = ({ gameState, socket, isRocketcrab }) => {
 	const isSpy = me.role === "spy";
 	const isObserver = Boolean(me.isObserver);
 	const isCustomRound = roundMode === "custom";
+	const isRoundActive = roundPhase === "active";
+	const isSpyOfferPhase = roundPhase === "offering-spies";
 	const firstPlayer = players.find((player) => player.isFirst);
 	const canManageRoom = Boolean(me.isAdmin);
 
@@ -58,6 +62,8 @@ const InGame = ({ gameState, socket, isRocketcrab }) => {
 
 	useEffect(() => setTimeLeft(latestServerTimeLeft), [latestServerTimeLeft]);
 
+	const showTimer =
+		isRoundActive && settings.timeLimit !== 0 && latestServerTimeLeft !== null;
 	const timeExpired = timeLeft <= 0;
 	const minutesLeft = Math.floor(timeLeft / 60);
 	const secondsLeft = ((timeLeft % 60) + "").padStart(2, "0");
@@ -72,7 +78,7 @@ const InGame = ({ gameState, socket, isRocketcrab }) => {
 
 	return (
 		<div name="gameView" style={{ userSelect: "none" }}>
-			{settings.timeLimit !== 0 && (
+			{showTimer && (
 				<div
 					style={{ marginBottom: "1em" }}
 					onClick={canManageRoom ? handleTogglePause : undefined}
@@ -104,12 +110,15 @@ const InGame = ({ gameState, socket, isRocketcrab }) => {
 							round as a non-spy player.
 						</div>
 					)}
-					{!isObserver && isSpy && (
+					{!isObserver && !isSpyOfferPhase && isSpy && (
 						<div className="player-status player-status-spy">
 							{t("ui.you are the spy")}
 						</div>
 					)}
-					{!isObserver && !isSpy && (
+					{!isObserver && isSpyOfferPhase && (
+						<SpyOfferStatus spyOffer={spyOffer} isSpy={isSpy} socket={socket} />
+					)}
+					{!isObserver && !isSpyOfferPhase && !isSpy && (
 						<>
 							<div
 								className="player-status player-status-not-spy"
@@ -149,13 +158,24 @@ const InGame = ({ gameState, socket, isRocketcrab }) => {
 				<div>The first question will be asked by {firstPlayer.name}.</div>
 			)}
 
-			<QuestionHelper
-				activeQuestion={activeQuestion}
-				questionHistory={questionHistory}
-				players={players}
-				me={me}
-				socket={socket}
-			/>
+			{isRoundActive ? (
+				<QuestionHelper
+					activeQuestion={activeQuestion}
+					questionHistory={questionHistory}
+					players={players}
+					me={me}
+					socket={socket}
+				/>
+			) : (
+				<HideableContainer title={"Question Helper"} initialHidden={false}>
+					<div className="status-container-content question-helper">
+						<div className="settings-help">
+							Question logging unlocks after all spies have been finalized and
+							clues are revealed.
+						</div>
+					</div>
+				</HideableContainer>
+			)}
 
 			<h5>{t("ui.players")}</h5>
 			<ul className="ingame-player-list">
@@ -175,7 +195,8 @@ const InGame = ({ gameState, socket, isRocketcrab }) => {
 							></div>
 						)}
 						{!player.connected && <i> (Disconnected)</i>}
-						{canManageRoom &&
+						{isRoundActive &&
+							canManageRoom &&
 							player.isObserver &&
 							player.connected &&
 							player.name && (
@@ -194,14 +215,18 @@ const InGame = ({ gameState, socket, isRocketcrab }) => {
 
 			<div className="u-cf"></div>
 
-			<h5>{isCustomRound ? "Word Reference" : t("ui.location reference")}</h5>
-			<ul className="location-list">
-				{locationList.map((name, i) => (
-					<StrikeableBox key={i}>
-						{renderRoundLabel(name, isCustomRound, t)}
-					</StrikeableBox>
-				))}
-			</ul>
+			{isRoundActive && locationList.length > 0 && (
+				<>
+					<h5>{isCustomRound ? "Word Reference" : t("ui.location reference")}</h5>
+					<ul className="location-list">
+						{locationList.map((name, i) => (
+							<StrikeableBox key={i}>
+								{renderRoundLabel(name, isCustomRound, t)}
+							</StrikeableBox>
+						))}
+					</ul>
+				</>
+			)}
 
 			<div className="button-container">
 				{canManageRoom && (
@@ -228,6 +253,47 @@ const InGame = ({ gameState, socket, isRocketcrab }) => {
 					</button>
 				)}
 			</div>
+		</div>
+	);
+};
+
+const SpyOfferStatus = ({ spyOffer, isSpy, socket }) => {
+	if (spyOffer) {
+		return (
+			<div className="player-status player-status-spy">
+				<div>You have been offered the spy role for this round.</div>
+				<div style={{ marginTop: "0.75em" }}>
+					<button
+						className="btn-small"
+						style={{ marginRight: "0.5em" }}
+						onClick={() => socket.emit("acceptSpyOffer")}
+					>
+						Accept
+					</button>
+					{spyOffer.canRefuse && (
+						<button
+							className="btn-small"
+							onClick={() => socket.emit("refuseSpyOffer")}
+						>
+							Refuse
+						</button>
+					)}
+				</div>
+			</div>
+		);
+	}
+
+	if (isSpy) {
+		return (
+			<div className="player-status player-status-spy">
+				You are the spy. Waiting for the remaining spies to be finalized.
+			</div>
+		);
+	}
+
+	return (
+		<div className="player-status player-status-not-spy">
+			Waiting for spy offers to finish before your clue is revealed.
 		</div>
 	);
 };
