@@ -1,8 +1,10 @@
 class Player {
-	constructor(socket) {
+	constructor(socket, authToken) {
 		this.socket = socket;
+		this.authToken = authToken;
 		this.name = "";
 		this.connected = true;
+		this.disconnectTimeout = null;
 		this.reset();
 	}
 
@@ -11,11 +13,22 @@ class Player {
 		this.isFirst = false;
 	};
 
-	getInfo = () => ({
+	clearDisconnectTimeout = () => {
+		if (!this.disconnectTimeout) return;
+		clearTimeout(this.disconnectTimeout);
+		this.disconnectTimeout = null;
+	};
+
+	getPublicInfo = (isCreator = false) => ({
 		name: this.name,
-		role: this.role,
 		isFirst: this.isFirst,
 		connected: this.connected,
+		isCreator,
+	});
+
+	getPrivateInfo = (isCreator = false) => ({
+		...this.getPublicInfo(isCreator),
+		role: this.role,
 	});
 }
 

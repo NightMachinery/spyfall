@@ -17,11 +17,18 @@ const InGame = ({ gameState, socket, isRocketcrab }) => {
 		timeLeft: latestServerTimeLeft,
 		timePaused,
 		settings,
+		roundMode,
+		questionHistory,
+		activeQuestion,
 	} = gameState;
 
 	const [timeLeft, setTimeLeft] = useState(latestServerTimeLeft);
 	const t = useI18n();
 	const lang = useCurrentLocale();
+	const isSpy = me.role === "spy";
+	const isCustomRound = roundMode === "custom";
+	const firstPlayer = players.find((player) => player.isFirst);
+	const canManageRoom = Boolean(me.isCreator);
 
 	useEffect(() => {
 		logEvent("player-roundCount", gameState.currentRoundNum + 1);
@@ -30,7 +37,7 @@ const InGame = ({ gameState, socket, isRocketcrab }) => {
 
 	useEffect(() => {
 		let interval = null;
-		if (!timePaused) {
+		if (!timePaused && timeLeft > 0) {
 			interval = setInterval(() => {
 				if (timeLeft <= 0) {
 					clearInterval(interval);
@@ -40,7 +47,7 @@ const InGame = ({ gameState, socket, isRocketcrab }) => {
 					}
 					return;
 				}
-				setTimeLeft((timeLeft) => timeLeft - 1);
+				setTimeLeft((currentTimeLeft) => currentTimeLeft - 1);
 			}, 1000);
 		} else if (timePaused && timeLeft !== 0) {
 			clearInterval(interval);
@@ -50,16 +57,13 @@ const InGame = ({ gameState, socket, isRocketcrab }) => {
 
 	useEffect(() => setTimeLeft(latestServerTimeLeft), [latestServerTimeLeft]);
 
-	const isSpy = me.role === "spy";
-	const firstPlayer = players.find((player) => player.isFirst);
-
 	const timeExpired = timeLeft <= 0;
 	const minutesLeft = Math.floor(timeLeft / 60);
 	const secondsLeft = ((timeLeft % 60) + "").padStart(2, "0");
-	const showTapToPause = !timePaused && timeLeft > 0;
+	const showTapToPause = canManageRoom && !timePaused && timeLeft > 0;
 
 	const handleTogglePause = () => {
-		if (timeExpired) return;
+		if (timeExpired || !canManageRoom) return;
 
 		socket.emit("togglePause");
 		logEvent("togglePause", true);
@@ -68,7 +72,10 @@ const InGame = ({ gameState, socket, isRocketcrab }) => {
 	return (
 		<div name="gameView" style={{ userSelect: "none" }}>
 			{settings.timeLimit !== 0 && (
-				<div style={{ marginBottom: "1em" }} onClick={handleTogglePause}>
+				<div
+					style={{ marginBottom: "1em" }}
+					onClick={canManageRoom ? handleTogglePause : undefined}
+				>
 					<h4
 						className={
 							"game-countdown " +
@@ -104,34 +111,47 @@ const InGame = ({ gameState, socket, isRocketcrab }) => {
 								}}
 							></div>
 
-							<div className="current-location">
-								<div className="current-location-header">
-									{t("ui.the location")}:{" "}
+							{location && (
+								<div className="current-location">
+									<div className="current-location-header">
+										{isCustomRound ? "Chosen word" : `${t("ui.the location")}:`}
+									</div>
+									<div className="current-location-name">
+										{renderRoundLabel(location.name, isCustomRound, t)}
+									</div>
 								</div>
-								<div className="current-location-name">{t(location.name)}</div>
-							</div>
+							)}
 
-							<div className="current-role">
-								<div className="current-role-header">{t("ui.your role")}: </div>
-								<div className="current-role-name">{t(me.role)}</div>
-							</div>
+							{!isCustomRound && (
+								<div className="current-role">
+									<div className="current-role-header">{t("ui.your role")}: </div>
+									<div className="current-role-name">{t(me.role)}</div>
+								</div>
+							)}
 						</>
 					)}
 				</div>
 			</HideableContainer>
 
-			{me.isFirst && (
-				<div className="red-text">You will ask the first question.</div>
-			)}
-			{!me.isFirst && (
+			{me.isFirst && <div className="red-text">You will ask the first question.</div>}
+			{!me.isFirst && firstPlayer && (
 				<div>The first question will be asked by {firstPlayer.name}.</div>
 			)}
+
+			<QuestionHelper
+				activeQuestion={activeQuestion}
+				questionHistory={questionHistory}
+				players={players}
+				me={me}
+				socket={socket}
+			/>
 
 			<h5>{t("ui.players")}</h5>
 			<ul className="ingame-player-list">
 				{players.map((player, i) => (
 					<StrikeableBox key={i}>
 						{player.name && player.name}
+						{player.isCreator && <strong> (creator)</strong>}
 						{!player.name && <i>Joining...</i>}
 						{player.isFirst && (
 							<div
@@ -146,30 +166,32 @@ const InGame = ({ gameState, socket, isRocketcrab }) => {
 
 			<div className="u-cf"></div>
 
-			<h5>{t("ui.location reference")}</h5>
+			<h5>{isCustomRound ? "Word Reference" : t("ui.location reference")}</h5>
 			<ul className="location-list">
 				{locationList.map((name, i) => (
-					<StrikeableBox key={i}>{t(name)}</StrikeableBox>
+					<StrikeableBox key={i}>
+						{renderRoundLabel(name, isCustomRound, t)}
+					</StrikeableBox>
 				))}
 			</ul>
 
 			<div className="button-container">
-				<button
-					className="btn-end"
-					onClick={() =>
-						popup(t("ui.end game"), t("ui.back"), () => socket.emit("endGame"))
-					}
-				>
-					{t("ui.end game")}
-				</button>
+				{canManageRoom && (
+					<button
+						className="btn-end"
+						onClick={() =>
+							popup("End Round", t("ui.back"), () => socket.emit("endGame"))
+						}
+					>
+						{t("ui.end game")}
+					</button>
+				)}
 				{!isRocketcrab && (
 					<button
 						className="btn-leave"
 						onClick={() =>
 							popup(t("ui.leave game"), t("ui.back"), () => {
-								//prevents a redirect back to /[gameCode]
-								socket.off("disconnect");
-
+								socket.disconnect();
 								Router.push("/");
 							})
 						}
@@ -181,6 +203,168 @@ const InGame = ({ gameState, socket, isRocketcrab }) => {
 		</div>
 	);
 };
+
+const QuestionHelper = ({
+	activeQuestion,
+	questionHistory,
+	players,
+	me,
+	socket,
+}) => {
+	const [targetName, setTargetName] = useState("");
+	const [optionOne, setOptionOne] = useState("");
+	const [optionTwo, setOptionTwo] = useState("");
+	const [answer, setAnswer] = useState("");
+
+	useEffect(() => {
+		if (!activeQuestion) {
+			setAnswer("");
+		}
+	}, [activeQuestion]);
+
+	const connectedTargets = players.filter(
+		(player) => player.name && player.connected && player.name !== me.name
+	);
+	const canAnswer = activeQuestion?.targetName === me.name;
+
+	const submitPrompt = () => {
+		socket.emit("submitQuestionPrompt", {
+			targetName,
+			optionOne,
+			optionTwo,
+		});
+		setOptionOne("");
+		setOptionTwo("");
+	};
+
+	const submitAnswer = () => {
+		socket.emit("submitQuestionAnswer", answer);
+		setAnswer("");
+	};
+
+	return (
+		<HideableContainer title={"Question Helper"} initialHidden={false}>
+			<div className="status-container-content question-helper">
+				{!activeQuestion && (
+					<>
+						<div className="settings-help">
+							Enter 2 possible questions, choose who they are directed to, and
+							log the final question/answer pair for everyone.
+						</div>
+						<label htmlFor="question-target">Ask this player:</label>
+						<select
+							id="question-target"
+							className="u-full-width"
+							value={targetName}
+							onChange={({ target: { value } }) => setTargetName(value)}
+						>
+							<option value="">Choose a player</option>
+							{connectedTargets.map((player) => (
+								<option key={player.name} value={player.name}>
+									{player.name}
+								</option>
+							))}
+						</select>
+						<input
+							type="text"
+							placeholder="Question option 1"
+							className="u-full-width"
+							value={optionOne}
+							onChange={({ target: { value } }) => setOptionOne(value)}
+							maxLength={160}
+						/>
+						<input
+							type="text"
+							placeholder="Question option 2"
+							className="u-full-width"
+							value={optionTwo}
+							onChange={({ target: { value } }) => setOptionTwo(value)}
+							maxLength={160}
+						/>
+						<button
+							className="btn-small"
+							disabled={!targetName || !optionOne.trim() || !optionTwo.trim()}
+							onClick={submitPrompt}
+						>
+							Send options
+						</button>
+					</>
+				)}
+
+				{activeQuestion && (
+					<div className="question-active-card">
+						<div>
+							<strong>{activeQuestion.askerName}</strong> is asking{" "}
+							<strong>{activeQuestion.targetName}</strong>.
+						</div>
+						<ol>
+							{activeQuestion.options.map((option, index) => (
+								<li key={option}>
+									{option}{" "}
+									{activeQuestion.selectedOptionIndex === index && (
+										<strong>(chosen)</strong>
+									)}
+									{canAnswer && activeQuestion.selectedOptionIndex === null && (
+										<button
+											className="btn-small"
+											onClick={() => socket.emit("chooseQuestionOption", index)}
+										>
+											Choose
+										</button>
+									)}
+								</li>
+							))}
+						</ol>
+						{canAnswer && activeQuestion.selectedOptionIndex !== null && (
+							<>
+								<input
+									type="text"
+									className="u-full-width"
+									placeholder="Type the answer"
+									value={answer}
+									maxLength={300}
+									onChange={({ target: { value } }) => setAnswer(value)}
+								/>
+								<button
+									className="btn-small"
+									disabled={!answer.trim()}
+									onClick={submitAnswer}
+								>
+									Log answer
+								</button>
+							</>
+						)}
+					</div>
+				)}
+
+				<div style={{ marginTop: "1em" }}>
+					<h5>Question History</h5>
+					{questionHistory.length === 0 && (
+						<div className="settings-help">No questions logged yet.</div>
+					)}
+					{questionHistory.length > 0 && (
+						<ol className="question-history-list">
+							{questionHistory.map((entry, index) => (
+								<li key={`${entry.askerName}-${entry.targetName}-${index}`}>
+									<div>
+										<strong>
+											{entry.askerName} → {entry.targetName}
+										</strong>
+									</div>
+									<div>Q: {entry.question}</div>
+									<div>A: {entry.answer}</div>
+								</li>
+							))}
+						</ol>
+					)}
+				</div>
+			</div>
+		</HideableContainer>
+	);
+};
+
+const renderRoundLabel = (value, isCustomRound, t) =>
+	isCustomRound ? value : t(value);
 
 const popup = (yesText, noText, onYes) =>
 	Swal.fire({

@@ -519,6 +519,66 @@ hr {
 	margin-bottom: -4px;
 }
 
+.room-creator-note,
+.settings-note,
+.settings-help {
+	font-size: 0.9em;
+	color: #666;
+}
+
+.room-creator-note {
+	margin-bottom: 0.8em;
+}
+
+.settings-inline {
+	display: flex;
+	flex-wrap: wrap;
+	gap: 0.75em;
+	margin-top: 0.5em;
+}
+
+.settings-inline > div {
+	display: flex;
+	flex-direction: column;
+	align-items: flex-start;
+}
+
+.settings-inline input,
+.settings-inline select {
+	min-width: 6em;
+}
+
+.question-helper input[type="text"],
+.question-helper textarea,
+textarea.u-full-width {
+	max-width: 100%;
+}
+
+.question-active-card {
+	padding: 0.75em;
+	background: #f6f6f6;
+	border: 1px solid #e1e1e1;
+	border-radius: 4px;
+	text-align: left;
+}
+
+.question-active-card ol,
+.question-history-list {
+	margin-bottom: 0;
+	text-align: left;
+}
+
+.question-active-card li,
+.question-history-list li {
+	margin-bottom: 0.6em;
+}
+
+.connection-banner {
+	font-size: 0.9em;
+	color: #d00000;
+	margin-bottom: 1em;
+}
+
 .swal2-popup {
 	font-size: 1em !important;
 }

@@ -9,10 +9,13 @@ import AccessCode from "./AccessCode";
 import HideableContainer from "./HideableContainer";
 
 const Lobby = ({ gameState, socket, isRocketcrab }) => {
+	const { me } = gameState;
 	const playerList = gameState.players.map((player) => ({
 		...player,
-		isMe: player.name === gameState.me.name,
+		isMe: player.name === me.name,
 	}));
+	const canManageRoom = Boolean(me.isCreator);
+
 	const handleStartGame = () => {
 		socket.emit("startGame");
 
@@ -31,28 +34,42 @@ const Lobby = ({ gameState, socket, isRocketcrab }) => {
 
 			<hr />
 
+			{canManageRoom ? (
+				<div className="room-creator-note">You are the room creator.</div>
+			) : (
+				<div className="room-creator-note">Only the room creator can manage this room.</div>
+			)}
+
 			<ol className="lobby-player-list">
 				{playerList.map((player, i) => (
 					<li key={i} className="player-box">
-						{player.name}
+						<span>
+							{player.name}
+							{player.isCreator && <strong> (creator)</strong>}
+						</span>
 						{!player.name && <i>Joining...</i>}
+						{player.name && !player.connected && <i> (Disconnected)</i>}
 
 						{player.isMe && !isRocketcrab && (
 							<a
 								href="#"
 								className="btn-edit-player"
-								data-player-id="{{ _id }}"
-								onClick={() => socket.emit("clearName")}
+								onClick={(event) => {
+									event.preventDefault();
+									socket.emit("clearName");
+								}}
 							>
 								Edit name
 							</a>
 						)}
-						{!player.isMe && (
+						{!player.isMe && canManageRoom && !player.isCreator && (
 							<a
 								href="#"
 								className="btn-remove-player"
-								data-player-id="{{ _id }}"
-								onClick={() => socket.emit("removePlayer", player.name)}
+								onClick={(event) => {
+									event.preventDefault();
+									socket.emit("removePlayer", player.name);
+								}}
 							>
 								Remove player
 							</a>
@@ -69,7 +86,7 @@ const Lobby = ({ gameState, socket, isRocketcrab }) => {
 				<button
 					className="btn-start"
 					onClick={handleStartGame}
-					disabled={gameState.status !== "lobby-ready"}
+					disabled={!canManageRoom || gameState.status !== "lobby-ready"}
 				>
 					{t("ui.start game")}
 				</button>
@@ -77,9 +94,7 @@ const Lobby = ({ gameState, socket, isRocketcrab }) => {
 					<button
 						className="btn-leave"
 						onClick={() => {
-							//prevents a redirect back to /[gameCode]
-							socket.off("disconnect");
-
+							socket.disconnect();
 							Router.push("/");
 						}}
 					>
