@@ -28,3 +28,7 @@ yarn-error.log*
 .env.development.local
 .env.test.local
 .env.production.local
+.self-host.env
+.self-host.install-stamp
+.pnpm-store
+pnpm-lock.yaml

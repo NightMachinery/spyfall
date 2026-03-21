@@ -1,6 +1,8 @@
 import React from "react";
 import Link from "next/link";
 
+const externalHelpEnabled = process.env.NEXT_PUBLIC_ENABLE_EXTERNAL_HELP === "1";
+
 const HowToPlay = () => {
 	return (
 		<>
@@ -18,15 +20,24 @@ const HowToPlay = () => {
 					<p>
 						In my opinion, the easiest way to learn how to play Spyfall would be
 						to watch someone else play, as it will help you get a feel for the
-						dynamic of the game. Here's a video on YouTube of some people
-						playing:
+						dynamic of the game.
 					</p>
-					<div style={{ textAlign: "center" }}>
-						<iframe
-							src="https://www.youtube.com/embed/O7W0rH6YpeI"
-							className="embed-responsive-item"
-						/>
-					</div>
+					{externalHelpEnabled ? (
+						<>
+							<p>Here's a video on YouTube of some people playing:</p>
+							<div style={{ textAlign: "center" }}>
+								<iframe
+									src="https://www.youtube.com/embed/O7W0rH6YpeI"
+									className="embed-responsive-item"
+								/>
+							</div>
+						</>
+					) : (
+						<p>
+							This deployment keeps the gameplay fully intranet-friendly, so it
+							does not embed external videos or PDFs.
+						</p>
+					)}
 					<br />
 					<p>
 						In short, when the game begins, one random player will become the
@@ -44,18 +55,25 @@ const HowToPlay = () => {
 						accuse someone else, or cannot unanimously decide on someone to
 						accuse.
 					</p>
-					<p>
-						If you want a little more detail, you can read the full official
-						rulebook of the board game version of Spyfall{" "}
-						<a
-							href="https://www.cryptozoic.com/sites/default/files/icme/u30695/spy_rules_eng_0.pdf"
-							target="_blank"
-							rel="noopener noreferrer"
-						>
-							here
-						</a>
-						.
-					</p>
+					{externalHelpEnabled ? (
+						<p>
+							If you want a little more detail, you can read the full official
+							rulebook of the board game version of Spyfall{" "}
+							<a
+								href="https://www.cryptozoic.com/sites/default/files/icme/u30695/spy_rules_eng_0.pdf"
+								target="_blank"
+								rel="noopener noreferrer"
+							>
+								here
+							</a>
+							.
+						</p>
+					) : (
+						<p>
+							The written summary above is the built-in guide for self-hosted
+							intranet deployments.
+						</p>
+					)}
 
 					<style jsx>{`
 						text-align: left;
