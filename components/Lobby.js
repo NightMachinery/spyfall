@@ -21,7 +21,6 @@ const Lobby = ({ gameState, socket, isRocketcrab }) => {
 
 	const handleStartGame = () => {
 		socket.emit("startGame");
-
 		logEvent("lobby-numberOfPlayers", gameState.players.length);
 		logEvent("lobby-locationPack", gameState.settings.locationPack);
 		logEvent("lobby-timeLimit", gameState.settings.timeLimit);
@@ -62,6 +61,7 @@ const Lobby = ({ gameState, socket, isRocketcrab }) => {
 							{player.isAdmin && !player.isCreator && (
 								<strong> (acting admin)</strong>
 							)}
+							{player.manualObserver && <strong> (observer)</strong>}
 						</span>
 						{!player.name && <i>Joining...</i>}
 						{player.name && !player.connected && <i> (Disconnected)</i>}
@@ -79,16 +79,28 @@ const Lobby = ({ gameState, socket, isRocketcrab }) => {
 							</a>
 						)}
 						{!player.isMe && canManageRoom && !player.isCreator && (
-							<a
-								href="#"
-								className="btn-remove-player"
-								onClick={(event) => {
-									event.preventDefault();
-									socket.emit("removePlayer", player.name);
-								}}
-							>
-								Remove player
-							</a>
+							<>
+								<a
+									href="#"
+									className="btn-remove-player"
+									onClick={(event) => {
+										event.preventDefault();
+										socket.emit("removePlayer", player.name);
+									}}
+								>
+									Remove player
+								</a>
+								<a
+									href="#"
+									className="btn-edit-player"
+									onClick={(event) => {
+										event.preventDefault();
+										socket.emit("togglePlayerObserver", player.name);
+									}}
+								>
+									{player.manualObserver ? "Set as player" : "Set as observer"}
+								</a>
+							</>
 						)}
 					</li>
 				))}

@@ -55,10 +55,21 @@ const Game = ({ loading }) => {
 		const handleDisconnect = () => setIsConnected(false);
 		const handleGameChange = (newGameState) => setGameState(newGameState);
 		const handleInvalid = () => router.push("/join?invalid=" + gameCode);
-		const handleBadName = () => Swal.fire("Name already in use");
+		const handleBadName = () =>
+			Swal.fire(
+				"Name already in use",
+				"Please choose an alternate display name.",
+				"warning",
+			);
 		const handleLockedWarning = (minutes) =>
 			Swal.fire(lockedMessage(minutes)).then(() => router.push("/"));
 		const handleActionError = (message) => Swal.fire(message);
+		const handleRoundOutcome = (payload) =>
+			Swal.fire(
+				payload?.title || "Round complete",
+				payload?.text || "",
+				payload?.everyoneWins ? "success" : "info",
+			);
 
 		socket.on("connect", handleConnect);
 		socket.on("disconnect", handleDisconnect);
@@ -67,6 +78,7 @@ const Game = ({ loading }) => {
 		socket.on("badName", handleBadName);
 		socket.on("lockedWarning", handleLockedWarning);
 		socket.on("actionError", handleActionError);
+		socket.on("roundOutcome", handleRoundOutcome);
 
 		if (!socket.connected) {
 			socket.connect();
@@ -80,6 +92,7 @@ const Game = ({ loading }) => {
 			socket.off("badName", handleBadName);
 			socket.off("lockedWarning", handleLockedWarning);
 			socket.off("actionError", handleActionError);
+			socket.off("roundOutcome", handleRoundOutcome);
 			socket.disconnect();
 		};
 	}, [gameCode, router, router.isReady]);
@@ -98,18 +111,30 @@ const Game = ({ loading }) => {
 		const urlParams = new URLSearchParams(window.location.search);
 		const rocketcrabName = urlParams.get("name");
 		const rocketcrabEnabled = urlParams.get("rocketcrab") === "true";
-		if (rocketcrabEnabled && rocketcrabName && gameState.me && !gameState.me.name) {
+		if (
+			rocketcrabEnabled &&
+			rocketcrabName &&
+			gameState.me &&
+			!gameState.me.name
+		) {
 			onNameEntry(rocketcrabName);
 		}
 	}, [gameCode, gameState.me, router.isReady]);
 
 	const onNameEntry = (name, { persist = true } = {}) => {
-		if (persist) {
-			setSavedDisplayNameState(setSavedDisplayName(name));
+		if (!persist) {
+			socket.emit("name", name);
+			return;
 		}
 
 		socket.emit("name", name);
 	};
+
+	useEffect(() => {
+		if (!gameState.me?.name) return;
+		const nextSavedName = setSavedDisplayName(gameState.me.name);
+		setSavedDisplayNameState(nextSavedName);
+	}, [gameState.me?.name]);
 
 	const { status, me = {} } = gameState;
 

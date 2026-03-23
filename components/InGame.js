@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useMemo } from "react";
 import Router from "next/router";
 import Swal from "sweetalert2";
 
@@ -22,6 +22,9 @@ const InGame = ({ gameState, socket, isRocketcrab }) => {
 		roundMode,
 		questionHistory,
 		activeQuestion,
+		questionTurn,
+		accusationPhase,
+		activeAccusationVote,
 	} = gameState;
 
 	const [timeLeft, setTimeLeft] = useState(latestServerTimeLeft);
@@ -32,7 +35,6 @@ const InGame = ({ gameState, socket, isRocketcrab }) => {
 	const isCustomRound = roundMode === "custom";
 	const isRoundActive = roundPhase === "active";
 	const isSpyOfferPhase = roundPhase === "offering-spies";
-	const firstPlayer = players.find((player) => player.isFirst);
 	const canManageRoom = Boolean(me.isAdmin);
 
 	useEffect(() => {
@@ -44,18 +46,8 @@ const InGame = ({ gameState, socket, isRocketcrab }) => {
 		let interval = null;
 		if (!timePaused && timeLeft > 0) {
 			interval = setInterval(() => {
-				if (timeLeft <= 0) {
-					clearInterval(interval);
-					setTimeLeft(0);
-					if (gameState.players[0].name === me.name) {
-						logEvent("timerExpired", true);
-					}
-					return;
-				}
-				setTimeLeft((currentTimeLeft) => currentTimeLeft - 1);
+				setTimeLeft((currentTimeLeft) => Math.max(0, currentTimeLeft - 1));
 			}, 1000);
-		} else if (timePaused && timeLeft !== 0) {
-			clearInterval(interval);
 		}
 		return () => clearInterval(interval);
 	}, [timePaused, timeLeft]);
@@ -65,8 +57,8 @@ const InGame = ({ gameState, socket, isRocketcrab }) => {
 	const showTimer =
 		isRoundActive && settings.timeLimit !== 0 && latestServerTimeLeft !== null;
 	const timeExpired = timeLeft <= 0;
-	const minutesLeft = Math.floor(timeLeft / 60);
-	const secondsLeft = ((timeLeft % 60) + "").padStart(2, "0");
+	const minutesLeft = Math.floor((timeLeft || 0) / 60);
+	const secondsLeft = (((timeLeft || 0) % 60) + "").padStart(2, "0");
 	const showTapToPause = canManageRoom && !timePaused && timeLeft > 0;
 
 	const handleKickPlayer = (playerName) =>
@@ -76,9 +68,12 @@ const InGame = ({ gameState, socket, isRocketcrab }) => {
 
 	const handleTogglePause = () => {
 		if (timeExpired || !canManageRoom) return;
-
 		socket.emit("togglePause");
 		logEvent("togglePause", true);
+	};
+
+	const handleToggleManualObserver = (playerName) => {
+		socket.emit("togglePlayerObserver", playerName);
 	};
 
 	return (
@@ -109,79 +104,64 @@ const InGame = ({ gameState, socket, isRocketcrab }) => {
 
 			<HideableContainer title={"Your Role"} initialHidden={false}>
 				<div className="status-container-content">
-					{isObserver && (
-						<div
-							className={
-								me.revealedSpyStatus === "spy"
-									? "player-status player-status-spy"
-									: "player-status player-status-not-spy"
-							}
-						>
-							{getObserverStatusMessage(me)}
-						</div>
-					)}
-					{!isObserver && !isSpyOfferPhase && isSpy && (
-						<div className="player-status player-status-spy">
-							{t("ui.you are the spy")}
-						</div>
-					)}
-					{!isObserver && isSpyOfferPhase && (
-						<SpyOfferStatus spyOffer={spyOffer} isSpy={isSpy} socket={socket} />
-					)}
-					{!isObserver && !isSpyOfferPhase && !isSpy && (
-						<>
-							<div
-								className="player-status player-status-not-spy"
-								dangerouslySetInnerHTML={{
-									__html: t("ui.you are not the spy"),
-								}}
-							></div>
-
-							{location && (
-								<div className="current-location">
-									<div className="current-location-header">
-										{isCustomRound ? "Chosen word" : `${t("ui.the location")}:`}
-									</div>
-									<div className="current-location-name">
-										{renderRoundLabel(location.name, isCustomRound, t)}
-									</div>
-								</div>
-							)}
-
-							{!isCustomRound && me.role && (
-								<div className="current-role">
-									<div className="current-role-header">
-										{t("ui.your role")}:{" "}
-									</div>
-									<div className="current-role-name">{t(me.role)}</div>
-								</div>
-							)}
-						</>
-					)}
+					<RolePanel
+						me={me}
+						location={location}
+						locationList={locationList}
+						isCustomRound={isCustomRound}
+						isSpy={isSpy}
+						isObserver={isObserver}
+						isSpyOfferPhase={isSpyOfferPhase}
+						spyOffer={spyOffer}
+						socket={socket}
+						t={t}
+					/>
 				</div>
 			</HideableContainer>
 
-			{me.isFirst && (
-				<div className="red-text">You will ask the first question.</div>
-			)}
-			{!me.isFirst && firstPlayer && (
-				<div>The first question will be asked by {firstPlayer.name}.</div>
-			)}
+			<div style={{ marginBottom: "0.75em" }}>
+				{questionTurn?.suggestedAskerName ? (
+					<div>
+						Suggested asker: <strong>{questionTurn.suggestedAskerName}</strong>
+						{questionTurn?.suggestedTargetName && (
+							<>
+								{" "}
+								(default target:{" "}
+								<strong>{questionTurn.suggestedTargetName}</strong>)
+							</>
+						)}
+					</div>
+				) : (
+					<div>No eligible question asker right now.</div>
+				)}
+			</div>
 
 			{isRoundActive ? (
-				<QuestionHelper
-					activeQuestion={activeQuestion}
-					questionHistory={questionHistory}
-					players={players}
-					me={me}
-					socket={socket}
-				/>
+				<>
+					<QuestionHelper
+						activeQuestion={activeQuestion}
+						questionHistory={questionHistory}
+						players={players}
+						me={me}
+						socket={socket}
+						questionTurn={questionTurn}
+						activeAccusationVote={activeAccusationVote}
+						accusationPhase={accusationPhase}
+					/>
+					<AccusationPanel
+						players={players}
+						me={me}
+						socket={socket}
+						accusationPhase={accusationPhase}
+						activeAccusationVote={activeAccusationVote}
+					/>
+				</>
 			) : (
-				<HideableContainer title={"Question Helper"} initialHidden={false}>
+				<HideableContainer title={"Round Tools"} initialHidden={false}>
 					<div className="status-container-content question-helper">
 						<div className="settings-help">
-							Question logging unlocks after all spies have been finalized and
-							clues are revealed.
+							Questioning, accusations, and guesses unlock once the round
+							becomes active.
 						</div>
 					</div>
 				</HideableContainer>
@@ -191,18 +171,24 @@ const InGame = ({ gameState, socket, isRocketcrab }) => {
 			<ul className="ingame-player-list">
 				{players.map((player, i) => (
 					<StrikeableBox key={i}>
-						{player.name && player.name}
-						{player.isCreator && <strong> (creator)</strong>}
-						{player.isAdmin && !player.isCreator && (
-							<strong> (acting admin)</strong>
-						)}
-						{player.isObserver && <strong> (observer)</strong>}
-						{player.revealedSpyStatus && (
-							<strong>
-								{" "}
-								(revealed: {formatRevealedSpyStatus(player.revealedSpyStatus)})
-							</strong>
-						)}
+						<div>
+							{player.name && player.name}
+							{player.isCreator && <strong> (creator)</strong>}
+							{player.isAdmin && !player.isCreator && (
+								<strong> (acting admin)</strong>
+							)}
+							{player.manualObserver && <strong> (manual observer)</strong>}
+							{player.isObserver && !player.manualObserver && (
+								<strong> (observer)</strong>
+							)}
+							{player.revealedSpyStatus && (
+								<strong>
+									{" "}
+									(revealed: {formatRevealedSpyStatus(player.revealedSpyStatus)}
+									)
+								</strong>
+							)}
+						</div>
 						{!player.name && <i>Joining...</i>}
 						{player.isFirst && (
 							<div
@@ -211,6 +197,10 @@ const InGame = ({ gameState, socket, isRocketcrab }) => {
 							></div>
 						)}
 						{!player.connected && <i> (Disconnected)</i>}
+						<div className="settings-help">
+							Accusations left: {player.accusationsRemaining}
+							{player.canVote && " · can vote"}
+						</div>
 						{isRoundActive &&
 							canManageRoom &&
 							player.name &&
@@ -226,11 +216,22 @@ const InGame = ({ gameState, socket, isRocketcrab }) => {
 									</button>
 								</div>
 							)}
+						{canManageRoom && player.name && player.name !== me.name && (
+							<div>
+								<button
+									className="btn-small"
+									onClick={() => handleToggleManualObserver(player.name)}
+								>
+									{player.manualObserver ? "Set as player" : "Set as observer"}
+								</button>
+							</div>
+						)}
 						{isRoundActive &&
 							canManageRoom &&
 							player.isObserver &&
 							player.connected &&
-							player.name && (
+							player.name &&
+							!player.manualObserver && (
 								<div>
 									{player.canBePromoted ? (
 										<button
@@ -298,6 +299,108 @@ const InGame = ({ gameState, socket, isRocketcrab }) => {
 	);
 };
 
+const RolePanel = ({
+	me,
+	location,
+	locationList,
+	isCustomRound,
+	isSpy,
+	isObserver,
+	isSpyOfferPhase,
+	spyOffer,
+	socket,
+	t,
+}) => {
+	const [guess, setGuess] = useState("");
+
+	useEffect(() => {
+		if (!locationList.includes(guess)) {
+			setGuess(locationList[0] || "");
+		}
+	}, [locationList, guess]);
+
+	if (isObserver) {
+		return (
+			<div
+				className={
+					me.revealedSpyStatus === "spy"
+						? "player-status player-status-spy"
+						: "player-status player-status-not-spy"
+				}
+			>
+				{getObserverStatusMessage(me)}
+			</div>
+		);
+	}
+
+	if (isSpyOfferPhase) {
+		return <SpyOfferStatus spyOffer={spyOffer} isSpy={isSpy} socket={socket} />;
+	}
+
+	if (isSpy) {
+		return (
+			<>
+				<div className="player-status player-status-spy">
+					{me.revealedSpyStatus === "spy"
+						? "You are a revealed spy."
+						: t("ui.you are the spy")}
+				</div>
+				<div className="settings-help">Guesses left: {me.guessesRemaining}</div>
+				{me.guessesRemaining > 0 && locationList.length > 0 && (
+					<div style={{ marginTop: "0.75em" }}>
+						<label htmlFor="spy-guess-select">Declare a guess:</label>
+						<select
+							id="spy-guess-select"
+							className="u-full-width"
+							value={guess}
+							onChange={({ target: { value } }) => setGuess(value)}
+						>
+							<option value="">Choose a guess</option>
+							{locationList.map((entry) => (
+								<option key={entry} value={entry}>
+									{entry}
+								</option>
+							))}
+						</select>
+						<button
+							className="btn-small"
+							disabled={!guess}
+							onClick={() => socket.emit("submitSpyGuess", guess)}
+						>
+							Submit guess
+						</button>
+					</div>
+				)}
+			</>
+		);
+	}
+
+	return (
+		<>
+			<div
+				className="player-status player-status-not-spy"
+				dangerouslySetInnerHTML={{ __html: t("ui.you are not the spy") }}
+			></div>
+			{location && (
+				<div className="current-location">
+					<div className="current-location-header">
+						{isCustomRound ? "Chosen word:" : `${t("ui.the location")}:`}
+					</div>
+					<div className="current-location-name">
+						{renderRoundLabel(location.name, isCustomRound, t)}
+					</div>
+				</div>
+			)}
+			{!isCustomRound && me.role && (
+				<div className="current-role">
+					<div className="current-role-header">{t("ui.your role")}: </div>
+					<div className="current-role-name">{t(me.role)}</div>
+				</div>
+			)}
+		</>
+	);
+};
+
 const SpyOfferStatus = ({ spyOffer, isSpy, socket }) => {
 	if (spyOffer) {
 		return (
@@ -345,27 +448,53 @@ const QuestionHelper = ({
 	players,
 	me,
 	socket,
+	questionTurn,
+	activeAccusationVote,
+	accusationPhase,
 }) => {
 	const [targetName, setTargetName] = useState("");
 	const [optionOne, setOptionOne] = useState("");
 	const [optionTwo, setOptionTwo] = useState("");
-	const [answer, setAnswer] = useState("");
+	const [questionTimeLeft, setQuestionTimeLeft] = useState(null);
 
-	useEffect(() => {
-		if (!activeQuestion) {
-			setAnswer("");
-		}
-	}, [activeQuestion]);
-
+	const canAsk = Boolean(
+		me.name && !me.isObserver && me.revealedSpyStatus !== "spy",
+	);
+	const isSuggestedAsker = questionTurn?.suggestedAskerName === me.name;
+	const canAnswer = activeQuestion?.targetName === me.name;
 	const connectedTargets = players.filter(
 		(player) =>
 			player.name &&
 			player.connected &&
 			!player.isObserver &&
+			player.revealedSpyStatus !== "spy" &&
 			player.name !== me.name,
 	);
-	const isObserver = Boolean(me.isObserver);
-	const canAnswer = !isObserver && activeQuestion?.targetName === me.name;
+
+	useEffect(() => {
+		if (!activeQuestion) {
+			setQuestionTimeLeft(null);
+			return;
+		}
+		const update = () => {
+			if (!activeQuestion.expiresAt) {
+				setQuestionTimeLeft(null);
+				return;
+			}
+			setQuestionTimeLeft(
+				Math.max(0, Math.ceil((activeQuestion.expiresAt - Date.now()) / 1000)),
+			);
+		};
+		update();
+		const interval = setInterval(update, 500);
+		return () => clearInterval(interval);
+	}, [activeQuestion]);
+
+	useEffect(() => {
+		if (!activeQuestion && isSuggestedAsker) {
+			setTargetName(questionTurn?.suggestedTargetName || "");
+		}
+	}, [activeQuestion, isSuggestedAsker, questionTurn?.suggestedTargetName]);
 
 	const submitPrompt = () => {
 		socket.emit("submitQuestionPrompt", {
@@ -377,65 +506,61 @@ const QuestionHelper = ({
 		setOptionTwo("");
 	};
 
-	const submitAnswer = () => {
-		socket.emit("submitQuestionAnswer", answer);
-		setAnswer("");
-	};
-
 	return (
-		<HideableContainer title={"Question Helper"} initialHidden={false}>
+		<HideableContainer
+			key={`question-${questionTurn?.suggestedAskerName}-${me.name}-${activeQuestion?.id || "idle"}`}
+			title={"Question Helper"}
+			initialHidden={!isSuggestedAsker}
+		>
 			<div className="status-container-content question-helper">
-				{isObserver && (
-					<div className="settings-help">
-						Observers cannot ask or answer questions until they are promoted
-						into the round.
-					</div>
-				)}
-				{!activeQuestion && !isObserver && (
-					<>
-						<div className="settings-help">
-							Enter 2 possible questions, choose who they are directed to, and
-							log the final question/answer pair for everyone.
-						</div>
-						<label htmlFor="question-target">Ask this player:</label>
-						<select
-							id="question-target"
-							className="u-full-width"
-							value={targetName}
-							onChange={({ target: { value } }) => setTargetName(value)}
-						>
-							<option value="">Choose a player</option>
-							{connectedTargets.map((player) => (
-								<option key={player.name} value={player.name}>
-									{player.name}
-								</option>
-							))}
-						</select>
-						<input
-							type="text"
-							placeholder="Question option 1"
-							className="u-full-width"
-							value={optionOne}
-							onChange={({ target: { value } }) => setOptionOne(value)}
-							maxLength={160}
-						/>
-						<input
-							type="text"
-							placeholder="Question option 2"
-							className="u-full-width"
-							value={optionTwo}
-							onChange={({ target: { value } }) => setOptionTwo(value)}
-							maxLength={160}
-						/>
-						<button
-							className="btn-small"
-							disabled={!targetName || !optionOne.trim() || !optionTwo.trim()}
-							onClick={submitPrompt}
-						>
-							Send options
-						</button>
-					</>
-				)}
+				{!activeQuestion &&
+					!activeAccusationVote &&
+					!accusationPhase &&
+					canAsk && (
+						<>
+							<div className="settings-help">
+								Ask two choices and let the target pick one. Anyone can ask
+								manually, but the suggested asker is highlighted above.
+							</div>
+							<label htmlFor="question-target">Ask this player:</label>
+							<select
+								id="question-target"
+								className="u-full-width"
+								value={targetName}
+								onChange={({ target: { value } }) => setTargetName(value)}
+							>
+								<option value="">Choose a player</option>
+								{connectedTargets.map((player) => (
+									<option key={player.name} value={player.name}>
+										{player.name}
+									</option>
+								))}
+							</select>
+							<input
+								type="text"
+								placeholder="Question option 1"
+								className="u-full-width"
+								value={optionOne}
+								onChange={({ target: { value } }) => setOptionOne(value)}
+								maxLength={160}
+							/>
+							<input
+								type="text"
+								placeholder="Question option 2"
+								className="u-full-width"
+								value={optionTwo}
+								onChange={({ target: { value } }) => setOptionTwo(value)}
+								maxLength={160}
+							/>
+							<button
+								className="btn-small"
+								disabled={!targetName || !optionOne.trim() || !optionTwo.trim()}
+								onClick={submitPrompt}
+							>
+								Send options
+							</button>
+						</>
+					)}
 
 				{activeQuestion && (
 					<div className="question-active-card">
@@ -443,14 +568,16 @@ const QuestionHelper = ({
 							<strong>{activeQuestion.askerName}</strong> is asking{" "}
 							<strong>{activeQuestion.targetName}</strong>.
 						</div>
+						{questionTimeLeft !== null && (
+							<div className="settings-help">
+								Response timer: {questionTimeLeft}s
+							</div>
+						)}
 						<ol>
 							{activeQuestion.options.map((option, index) => (
 								<li key={option}>
 									{option}{" "}
-									{activeQuestion.selectedOptionIndex === index && (
-										<strong>(chosen)</strong>
-									)}
-									{canAnswer && activeQuestion.selectedOptionIndex === null && (
+									{canAnswer && (
 										<button
 											className="btn-small"
 											onClick={() => socket.emit("chooseQuestionOption", index)}
@@ -461,25 +588,6 @@ const QuestionHelper = ({
 								</li>
 							))}
 						</ol>
-						{canAnswer && activeQuestion.selectedOptionIndex !== null && (
-							<>
-								<input
-									type="text"
-									className="u-full-width"
-									placeholder="Type the answer"
-									value={answer}
-									maxLength={300}
-									onChange={({ target: { value } }) => setAnswer(value)}
-								/>
-								<button
-									className="btn-small"
-									disabled={!answer.trim()}
-									onClick={submitAnswer}
-								>
-									Log answer
-								</button>
-							</>
-						)}
 					</div>
 				)}
 
@@ -497,13 +605,217 @@ const QuestionHelper = ({
 											{entry.askerName} → {entry.targetName}
 										</strong>
 									</div>
-									<div>Q: {entry.question}</div>
-									<div>A: {entry.answer}</div>
+									<div>
+										Options: 1) {entry.options[0]} 2) {entry.options[1]}
+									</div>
+									<div>
+										Result:{" "}
+										{entry.outcome === "timeout"
+											? "unanswered in time"
+											: entry.recordedChoiceText}
+									</div>
 								</li>
 							))}
 						</ol>
 					)}
 				</div>
+			</div>
+		</HideableContainer>
+	);
+};
+
+const AccusationPanel = ({
+	players,
+	me,
+	socket,
+	accusationPhase,
+	activeAccusationVote,
+}) => {
+	const [targetName, setTargetName] = useState("");
+	const [starterTargetName, setStarterTargetName] = useState("");
+
+	const accusationTargets = useMemo(
+		() =>
+			players.filter(
+				(player) =>
+					player.name &&
+					player.connected &&
+					!player.isObserver &&
+					!player.revealedSpyStatus &&
+					player.name !== me.name,
+			),
+		[players, me.name],
+	);
+
+	useEffect(() => {
+		if (!starterTargetName && accusationTargets[0]) {
+			setStarterTargetName(accusationTargets[0].name);
+		}
+		if (!targetName && accusationTargets[0]) {
+			setTargetName(accusationTargets[0].name);
+		}
+	}, [accusationTargets, starterTargetName, targetName]);
+
+	const canInitiate = Boolean(
+		me.name && !me.isObserver && me.revealedSpyStatus !== "spy",
+	);
+	const myTurn = accusationPhase?.currentTurnName === me.name;
+	const myTurnIsCounter = accusationPhase?.currentTurnKind === "counter";
+
+	return (
+		<HideableContainer title={"Accusations"} initialHidden={false}>
+			<div className="status-container-content question-helper">
+				<div className="settings-help">
+					Your remaining accusations are public. Revealed non-spies can still
+					vote; revealed spies cannot.
+				</div>
+
+				{activeAccusationVote && (
+					<div className="question-active-card">
+						<div>
+							<strong>{activeAccusationVote.initiatedByName}</strong> started a
+							vote on <strong>{activeAccusationVote.targetName}</strong>
+							{activeAccusationVote.isCounter && " (counter-accusation)"}.
+						</div>
+						<div className="settings-help">
+							Yes: {activeAccusationVote.yesVotes} · No:{" "}
+							{activeAccusationVote.noVotes} · Pending:{" "}
+							{activeAccusationVote.pendingVotes}
+						</div>
+						{activeAccusationVote.eligibleToVote &&
+							activeAccusationVote.myVote === null && (
+								<div>
+									<button
+										className="btn-small"
+										onClick={() => socket.emit("voteAccusation", true)}
+									>
+										Vote yes
+									</button>
+									<button
+										className="btn-small"
+										onClick={() => socket.emit("voteAccusation", false)}
+									>
+										Vote no
+									</button>
+								</div>
+							)}
+						{activeAccusationVote.eligibleToVote &&
+							activeAccusationVote.myVote !== null && (
+								<div className="settings-help">
+									You voted {activeAccusationVote.myVote ? "yes" : "no"}.
+								</div>
+							)}
+					</div>
+				)}
+
+				{!activeAccusationVote && accusationPhase?.currentTurnName && (
+					<div className="question-active-card">
+						<div>
+							Current accusation turn:{" "}
+							<strong>{accusationPhase.currentTurnName}</strong>
+							{accusationPhase.currentTurnKind === "counter" &&
+								" (counter-accusation)"}
+						</div>
+						{myTurn ? (
+							<>
+								<select
+									className="u-full-width"
+									value={targetName}
+									onChange={({ target: { value } }) => setTargetName(value)}
+								>
+									<option value="">Choose a player</option>
+									{accusationTargets.map((player) => (
+										<option key={player.name} value={player.name}>
+											{player.name}
+										</option>
+									))}
+								</select>
+								<button
+									className="btn-small"
+									disabled={!targetName}
+									onClick={() =>
+										socket.emit("submitPlayerAccusation", targetName)
+									}
+								>
+									{myTurnIsCounter ? "Counter-accuse" : "Accuse"}
+								</button>
+								<button
+									className="btn-small"
+									onClick={() => socket.emit("passAccusationTurn")}
+								>
+									Pass
+								</button>
+							</>
+						) : (
+							<div className="settings-help">
+								Waiting for {accusationPhase.currentTurnName} to accuse or pass.
+							</div>
+						)}
+					</div>
+				)}
+
+				{!activeAccusationVote &&
+					!accusationPhase?.currentTurnName &&
+					canInitiate && (
+						<div style={{ marginBottom: "1em" }}>
+							<div className="settings-help">
+								Start a voted accusation or call a terminal accusation.
+							</div>
+							<select
+								className="u-full-width"
+								value={starterTargetName}
+								onChange={({ target: { value } }) =>
+									setStarterTargetName(value)
+								}
+							>
+								<option value="">Choose a player</option>
+								{accusationTargets.map((player) => (
+									<option key={player.name} value={player.name}>
+										{player.name}
+									</option>
+								))}
+							</select>
+							<button
+								className="btn-small"
+								disabled={!starterTargetName}
+								onClick={() =>
+									socket.emit("startPlayerAccusation", starterTargetName)
+								}
+							>
+								Start accusation
+							</button>
+							<button
+								className="btn-small"
+								onClick={() => socket.emit("startTerminalAccusation", "no-spy")}
+							>
+								No Spy
+							</button>
+							<button
+								className="btn-small"
+								onClick={() =>
+									socket.emit(
+										"startTerminalAccusation",
+										"everyone-remaining-spy",
+									)
+								}
+							>
+								Everyone Remaining is a Spy
+							</button>
+						</div>
+					)}
+
+				{accusationPhase?.scoreEntries?.length > 0 && (
+					<div>
+						<h5>Accusation Scoreboard</h5>
+						<ul>
+							{accusationPhase.scoreEntries.map((entry) => (
+								<li key={entry.targetAuthToken}>
+									{entry.targetName}: {entry.yesVotes} yes votes
+								</li>
+							))}
+						</ul>
+					</div>
+				)}
 			</div>
 		</HideableContainer>
 	);
@@ -519,14 +831,18 @@ const formatRevealedSpyStatus = (status) => {
 };
 
 const getObserverStatusMessage = (player) => {
+	if (player.manualObserver) {
+		return "You are observing by admin choice. An admin can set you back to player mode.";
+	}
 	if (player.revealedSpyStatus === "spy") {
-		return "You were kicked from the round and revealed as the spy. You cannot rejoin this round.";
+		return "You were removed from the round and revealed as the spy. You cannot rejoin this round.";
 	}
-
+	if (player.observerReason === "accusation-not-spy") {
+		return "You were voted out of the round as not-spy. You can still vote on accusations.";
+	}
 	if (player.revealedSpyStatus === "not-spy") {
-		return "You were kicked from the round and revealed as not the spy. An admin can promote you back into the round as a non-spy player.";
+		return "You were removed from the round and revealed as not the spy. An admin can promote you back into the round.";
 	}
-
 	return "You are observing this round. An admin can promote you into the round as a non-spy player.";
 };
 

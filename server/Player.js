@@ -5,15 +5,19 @@ class Player {
 		this.name = "";
 		this.connected = true;
 		this.disconnectTimeout = null;
-		this.observer = false;
-		this.reset();
+		this.manualObserver = false;
+		this.resetRoundState();
 	}
 
-	reset = () => {
+	resetRoundState = () => {
 		this.role = null;
 		this.isFirst = false;
+		this.observer = false;
+		this.observerReason = null;
 		this.revealedSpyStatus = null;
 		this.canBePromoted = true;
+		this.guessesRemaining = 0;
+		this.accusationsRemaining = 0;
 	};
 
 	clearDisconnectTimeout = () => {
@@ -28,14 +32,18 @@ class Player {
 		connected: this.connected,
 		isCreator,
 		isAdmin,
-		isObserver: this.observer,
+		isObserver: this.manualObserver || this.observer,
+		manualObserver: this.manualObserver,
+		observerReason: this.manualObserver ? "manual" : this.observerReason,
 		revealedSpyStatus: this.revealedSpyStatus,
 		canBePromoted: this.canBePromoted,
+		accusationsRemaining: this.accusationsRemaining,
 	});
 
 	getPrivateInfo = (isCreator = false, isAdmin = false) => ({
 		...this.getPublicInfo(isCreator, isAdmin),
 		role: this.role,
+		guessesRemaining: this.guessesRemaining,
 	});
 }
 

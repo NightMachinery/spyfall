@@ -4,9 +4,9 @@ const Settings = ({ gameState, socket }) => {
 	const { settings, AVAILABLE_LOCATION_PACKS, players, me } = gameState;
 	const canEdit = Boolean(me.isAdmin);
 	const namedPlayerCount = players.filter(
-		(player) => player.name && !player.isObserver,
+		(player) => player.name && !player.manualObserver,
 	).length;
-	const maxSpyCount = Math.max(1, Math.max(namedPlayerCount, 2) - 1);
+	const maxSpyCount = Math.max(0, Math.max(namedPlayerCount, 2) - 1);
 
 	const [customWordsText, setCustomWordsText] = useState(
 		settings.customWordsText || "",
@@ -28,11 +28,7 @@ const Settings = ({ gameState, socket }) => {
 	);
 
 	return (
-		<div
-			style={{
-				paddingTop: "1em",
-			}}
-		>
+		<div style={{ paddingTop: "1em" }}>
 			{!canEdit && (
 				<div className="settings-note">
 					Only the current admin can edit settings.
@@ -53,25 +49,21 @@ const Settings = ({ gameState, socket }) => {
 				disabled={!canEdit}
 			/>
 
-			<IncludeAllSpy
-				onSetIncludeAllSpy={(includeAllSpy) =>
-					updateSettings({ includeAllSpy })
-				}
-				serverIncludeAllSpy={settings.includeAllSpy}
-				disabled={!canEdit || settings.customWordsEnabled}
-			/>
-
-			<AllowSpyRefusal
-				onSetAllowSpyRefusal={(allowSpyRefusal) =>
-					updateSettings({ allowSpyRefusal })
-				}
-				serverAllowSpyRefusal={settings.allowSpyRefusal}
-				disabled={!canEdit}
-			/>
-
-			<SpyCountSettings
+			<SpySettings
 				settings={settings}
 				maxSpyCount={maxSpyCount}
+				disabled={!canEdit}
+				onUpdateSettings={updateSettings}
+			/>
+
+			<QuestionSettings
+				settings={settings}
+				disabled={!canEdit}
+				onUpdateSettings={updateSettings}
+			/>
+
+			<AccusationSettings
+				settings={settings}
 				disabled={!canEdit}
 				onUpdateSettings={updateSettings}
 			/>
@@ -91,7 +83,6 @@ const Settings = ({ gameState, socket }) => {
 const TimeLimit = ({ onSetMinutes, serverMinutes, disabled }) => {
 	const minLength = 0;
 	const maxLength = 60;
-
 	const [minutes, setMinutes] = useState(serverMinutes);
 	const handleChange = (change) => () => {
 		const newMinutes = minutes + change;
@@ -127,12 +118,6 @@ const TimeLimit = ({ onSetMinutes, serverMinutes, disabled }) => {
 				>
 					+
 				</button>
-				<style jsx>{`
-					button {
-						margin: 1em, 0;
-						font-size: 1.5em;
-					}
-				`}</style>
 			</div>
 		</div>
 	);
@@ -176,85 +161,15 @@ const LocationPack = ({
 	);
 };
 
-const IncludeAllSpy = ({
-	onSetIncludeAllSpy,
-	serverIncludeAllSpy,
-	disabled,
-}) => {
-	const [includeAllSpy, setIncludeAllSpy] = useState(serverIncludeAllSpy);
-
-	const handleChange = (checked) => {
-		setIncludeAllSpy(checked);
-		onSetIncludeAllSpy(checked);
-	};
-
-	useEffect(() => {
-		setIncludeAllSpy(serverIncludeAllSpy);
-	}, [serverIncludeAllSpy]);
-
-	return (
-		<label>
-			<input
-				type="checkbox"
-				onChange={({ target: { checked } }) => handleChange(checked)}
-				checked={includeAllSpy}
-				disabled={disabled}
-			/>
-			<span className="label-body">
-				Enable ~2% chance all players are spies
-				{disabled && <span> (disabled in custom word mode)</span>}
-			</span>
-		</label>
-	);
-};
-
-const AllowSpyRefusal = ({
-	onSetAllowSpyRefusal,
-	serverAllowSpyRefusal,
-	disabled,
-}) => {
-	const [allowSpyRefusal, setAllowSpyRefusal] = useState(
-		serverAllowSpyRefusal,
-	);
-
-	const handleChange = (checked) => {
-		setAllowSpyRefusal(checked);
-		onSetAllowSpyRefusal(checked);
-	};
-
-	useEffect(() => {
-		setAllowSpyRefusal(serverAllowSpyRefusal);
-	}, [serverAllowSpyRefusal]);
-
-	return (
-		<label>
-			<input
-				type="checkbox"
-				onChange={({ target: { checked } }) => handleChange(checked)}
-				checked={allowSpyRefusal}
-				disabled={disabled}
-			/>
-			<span className="label-body">
-				Let players refuse being offered the spy role
-			</span>
-		</label>
-	);
-};
-
-const SpyCountSettings = ({
-	settings,
-	maxSpyCount,
-	disabled,
-	onUpdateSettings,
-}) => (
+const SpySettings = ({ settings, maxSpyCount, disabled, onUpdateSettings }) => (
 	<div style={{ marginTop: "1em" }}>
-		<label>Spy Count:</label>
+		<label>Spy Distribution:</label>
 		<div className="settings-inline">
 			<div>
 				<span>Min</span>
 				<input
 					type="number"
-					min="1"
+					min="0"
 					max={maxSpyCount}
 					value={settings.spyCountMin}
 					disabled={disabled}
@@ -267,7 +182,7 @@ const SpyCountSettings = ({
 				<span>Max</span>
 				<input
 					type="number"
-					min="1"
+					min="0"
 					max={maxSpyCount}
 					value={settings.spyCountMax}
 					disabled={disabled}
@@ -292,6 +207,120 @@ const SpyCountSettings = ({
 		</div>
 		<div className="settings-help">
 			Geometric favors the lower end of the selected range.
+		</div>
+
+		<label>
+			<input
+				type="checkbox"
+				checked={settings.includeAllSpy}
+				disabled={disabled}
+				onChange={({ target: { checked } }) =>
+					onUpdateSettings({ includeAllSpy: checked })
+				}
+			/>
+			<span className="label-body">
+				Allow the rare all-spies round override
+			</span>
+		</label>
+
+		<label>
+			<input
+				type="checkbox"
+				checked={settings.allowSpyRefusal}
+				disabled={disabled}
+				onChange={({ target: { checked } }) =>
+					onUpdateSettings({ allowSpyRefusal: checked })
+				}
+			/>
+			<span className="label-body">
+				Let players refuse being offered the spy role
+			</span>
+		</label>
+
+		<label>
+			<input
+				type="checkbox"
+				checked={settings.autoEndWhenAllSpiesRevealed}
+				disabled={disabled}
+				onChange={({ target: { checked } }) =>
+					onUpdateSettings({ autoEndWhenAllSpiesRevealed: checked })
+				}
+			/>
+			<span className="label-body">Auto-end when all spies are revealed</span>
+		</label>
+
+		<div className="settings-inline" style={{ marginTop: "0.5em" }}>
+			<div>
+				<span>Answer flip %</span>
+				<input
+					type="number"
+					min="0"
+					max="100"
+					value={settings.answerFlipChancePercent}
+					disabled={disabled}
+					onChange={({ target: { value } }) =>
+						onUpdateSettings({ answerFlipChancePercent: Number(value) })
+					}
+				/>
+			</div>
+			<div>
+				<span>Spy guesses</span>
+				<input
+					type="number"
+					min="0"
+					max="20"
+					value={settings.spyGuessLimit}
+					disabled={disabled}
+					onChange={({ target: { value } }) =>
+						onUpdateSettings({ spyGuessLimit: Number(value) })
+					}
+				/>
+			</div>
+		</div>
+	</div>
+);
+
+const QuestionSettings = ({ settings, disabled, onUpdateSettings }) => (
+	<div style={{ marginTop: "1em" }}>
+		<label>Question Flow:</label>
+		<div className="settings-inline">
+			<div>
+				<span>Response timer (seconds)</span>
+				<input
+					type="number"
+					min="0"
+					max="300"
+					value={settings.questionResponseSeconds}
+					disabled={disabled}
+					onChange={({ target: { value } }) =>
+						onUpdateSettings({ questionResponseSeconds: Number(value) })
+					}
+				/>
+			</div>
+		</div>
+		<div className="settings-help">
+			0 disables the per-question response timer.
+		</div>
+	</div>
+);
+
+const AccusationSettings = ({ settings, disabled, onUpdateSettings }) => (
+	<div style={{ marginTop: "1em" }}>
+		<label>Accusations:</label>
+		<div className="settings-inline">
+			<div>
+				<span>Accusations per player</span>
+				<input
+					type="number"
+					min="0"
+					max="20"
+					value={settings.accusationsPerPlayer}
+					disabled={disabled}
+					onChange={({ target: { value } }) =>
+						onUpdateSettings({ accusationsPerPlayer: Number(value) })
+					}
+				/>
+			</div>
 		</div>
 	</div>
 );
@@ -340,7 +369,7 @@ const CustomWordSettings = ({
 				{!disabled && (
 					<div className="settings-help">
 						{customWordCount} words entered. A fresh subset is sampled each
-						round, then one word from that subset is shown to non-spies only.
+						round.
 					</div>
 				)}
 				<label htmlFor="custom-subset-size">Subset size:</label>
@@ -356,8 +385,8 @@ const CustomWordSettings = ({
 					}
 				/>
 				<div className="settings-help">
-					Roles are hidden in this mode. Everyone uses the sampled word subset
-					as the reference list.
+					Roles are hidden in this mode. Everyone sees the sampled word list,
+					but only non-spies see the chosen word.
 				</div>
 			</div>
 		)}
