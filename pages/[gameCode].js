@@ -9,7 +9,11 @@ import Lobby from "../components/Lobby";
 import InGame from "../components/InGame";
 import Loading from "../components/Loading";
 import { lockedMessage } from "../utils/misc";
-import { getOrCreateAuthToken } from "../utils/localIdentity";
+import {
+	getOrCreateAuthToken,
+	getSavedDisplayName,
+	setSavedDisplayName,
+} from "../utils/localIdentity";
 
 const socket = socketIOClient({
 	autoConnect: false,
@@ -25,6 +29,7 @@ const Game = ({ loading }) => {
 	});
 	const [isRocketcrab, setIsRocketcrab] = useState(false);
 	const [isConnected, setIsConnected] = useState(socket.connected);
+	const [savedDisplayName, setSavedDisplayNameState] = useState("");
 
 	useEffect(() => {
 		if (!router.isReady) return;
@@ -36,6 +41,12 @@ const Game = ({ loading }) => {
 	useEffect(() => {
 		setGameState({ status: "loading" });
 	}, [gameCode]);
+
+	useEffect(() => {
+		if (!router.isReady) return;
+
+		setSavedDisplayNameState(getSavedDisplayName());
+	}, [router.isReady]);
 
 	useEffect(() => {
 		if (!router.isReady || !gameCode) return;
@@ -92,7 +103,11 @@ const Game = ({ loading }) => {
 		}
 	}, [gameCode, gameState.me, router.isReady]);
 
-	const onNameEntry = (name) => {
+	const onNameEntry = (name, { persist = true } = {}) => {
+		if (persist) {
+			setSavedDisplayNameState(setSavedDisplayName(name));
+		}
+
 		socket.emit("name", name);
 	};
 
@@ -131,6 +146,7 @@ const Game = ({ loading }) => {
 							onNameEntry={onNameEntry}
 							gameCode={gameState.code}
 							socket={socket}
+							initialName={savedDisplayName}
 						/>
 					)}
 					{showLobby && (

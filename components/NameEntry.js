@@ -2,16 +2,20 @@ import React, { useState, useEffect } from "react";
 import Router from "next/router";
 import { useI18n } from "../locales";
 
-const NameEntry = ({ onNameEntry, gameCode, socket }) => {
-	const [name, setName] = useState("");
+const NameEntry = ({ onNameEntry, gameCode, socket, initialName = "" }) => {
+	const [name, setName] = useState(initialName);
 
 	const t = useI18n();
+
+	useEffect(() => {
+		setName(initialName);
+	}, [initialName]);
 
 	// if dev game, pick random name and submit
 	useEffect(() => {
 		if (gameCode === "ffff") {
 			const randFourDig = Math.floor(1000 + Math.random() * 9000);
-			onNameEntry(String(randFourDig));
+			onNameEntry(String(randFourDig), { persist: false });
 		}
 	}, []);
 
