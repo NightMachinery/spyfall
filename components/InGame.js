@@ -69,6 +69,11 @@ const InGame = ({ gameState, socket, isRocketcrab }) => {
 	const secondsLeft = ((timeLeft % 60) + "").padStart(2, "0");
 	const showTapToPause = canManageRoom && !timePaused && timeLeft > 0;
 
+	const handleKickPlayer = (playerName) =>
+		popup("Kick player", t("ui.back"), () =>
+			socket.emit("kickPlayer", playerName),
+		);
+
 	const handleTogglePause = () => {
 		if (timeExpired || !canManageRoom) return;
 
@@ -105,9 +110,14 @@ const InGame = ({ gameState, socket, isRocketcrab }) => {
 			<HideableContainer title={"Your Role"} initialHidden={false}>
 				<div className="status-container-content">
 					{isObserver && (
-						<div className="player-status player-status-not-spy">
-							You are observing this round. An admin can promote you into the
-							round as a non-spy player.
+						<div
+							className={
+								me.revealedSpyStatus === "spy"
+									? "player-status player-status-spy"
+									: "player-status player-status-not-spy"
+							}
+						>
+							{getObserverStatusMessage(me)}
 						</div>
 					)}
 					{!isObserver && !isSpyOfferPhase && isSpy && (
@@ -187,6 +197,12 @@ const InGame = ({ gameState, socket, isRocketcrab }) => {
 							<strong> (acting admin)</strong>
 						)}
 						{player.isObserver && <strong> (observer)</strong>}
+						{player.revealedSpyStatus && (
+							<strong>
+								{" "}
+								(revealed: {formatRevealedSpyStatus(player.revealedSpyStatus)})
+							</strong>
+						)}
 						{!player.name && <i>Joining...</i>}
 						{player.isFirst && (
 							<div
@@ -197,16 +213,39 @@ const InGame = ({ gameState, socket, isRocketcrab }) => {
 						{!player.connected && <i> (Disconnected)</i>}
 						{isRoundActive &&
 							canManageRoom &&
+							player.name &&
+							player.connected &&
+							player.name !== me.name &&
+							!player.isObserver && (
+								<div>
+									<button
+										className="btn-small"
+										onClick={() => handleKickPlayer(player.name)}
+									>
+										Kick from round
+									</button>
+								</div>
+							)}
+						{isRoundActive &&
+							canManageRoom &&
 							player.isObserver &&
 							player.connected &&
 							player.name && (
 								<div>
-									<button
-										className="btn-small"
-										onClick={() => socket.emit("promoteObserver", player.name)}
-									>
-										Promote into round
-									</button>
+									{player.canBePromoted ? (
+										<button
+											className="btn-small"
+											onClick={() =>
+												socket.emit("promoteObserver", player.name)
+											}
+										>
+											Promote into round
+										</button>
+									) : (
+										<div className="settings-help">
+											Cannot rejoin this round.
+										</div>
+									)}
 								</div>
 							)}
 					</StrikeableBox>
@@ -217,7 +256,9 @@ const InGame = ({ gameState, socket, isRocketcrab }) => {
 
 			{isRoundActive && locationList.length > 0 && (
 				<>
-					<h5>{isCustomRound ? "Word Reference" : t("ui.location reference")}</h5>
+					<h5>
+						{isCustomRound ? "Word Reference" : t("ui.location reference")}
+					</h5>
 					<ul className="location-list">
 						{locationList.map((name, i) => (
 							<StrikeableBox key={i}>
@@ -470,6 +511,24 @@ const QuestionHelper = ({
 
 const renderRoundLabel = (value, isCustomRound, t) =>
 	isCustomRound ? value : t(value);
+
+const formatRevealedSpyStatus = (status) => {
+	if (status === "spy") return "spy";
+	if (status === "not-spy") return "not spy";
+	return "";
+};
+
+const getObserverStatusMessage = (player) => {
+	if (player.revealedSpyStatus === "spy") {
+		return "You were kicked from the round and revealed as the spy. You cannot rejoin this round.";
+	}
+
+	if (player.revealedSpyStatus === "not-spy") {
+		return "You were kicked from the round and revealed as not the spy. An admin can promote you back into the round as a non-spy player.";
+	}
+
+	return "You are observing this round. An admin can promote you into the round as a non-spy player.";
+};
 
 const popup = (yesText, noText, onYes) =>
 	Swal.fire({

@@ -297,6 +297,7 @@ class Game {
 		const { socket } = player;
 		socket.on("name", this.setName(player));
 		socket.on("startGame", this.startGame(player));
+		socket.on("kickPlayer", (name) => this.kickPlayerByName(player, name));
 		socket.on("removePlayer", (name) => this.removePlayerByName(player, name));
 		socket.on("promoteObserver", (name) =>
 			this.promoteObserverByName(player, name),
@@ -532,7 +533,9 @@ class Game {
 		this.roundPhase = "offering-spies";
 		this.spyOfferState = {
 			targetSpyCount: spyCount,
-			offerOrderAuthTokens: shuffleArray(players.map((player) => player.authToken)),
+			offerOrderAuthTokens: shuffleArray(
+				players.map((player) => player.authToken),
+			),
 			refusedAuthTokens: new Set(),
 			acceptedAuthTokens: new Set(),
 			currentOfferAuthToken: null,
@@ -542,7 +545,8 @@ class Game {
 	};
 
 	advanceSpyOfferFlow = () => {
-		if (this.roundPhase !== "offering-spies" || !this.spyOfferState) return false;
+		if (this.roundPhase !== "offering-spies" || !this.spyOfferState)
+			return false;
 
 		const roundPlayers = this.getRoundPlayers();
 		if (roundPlayers.length < 2) {
@@ -644,7 +648,8 @@ class Game {
 	};
 
 	syncPendingSpyRoles = () => {
-		const acceptedAuthTokens = this.spyOfferState?.acceptedAuthTokens || new Set();
+		const acceptedAuthTokens =
+			this.spyOfferState?.acceptedAuthTokens || new Set();
 		this.players.forEach((player) => {
 			if (player.observer) {
 				player.role = null;
@@ -656,8 +661,10 @@ class Game {
 	};
 
 	getSpyOfferForPlayer = (player) => {
-		if (this.roundPhase !== "offering-spies" || !this.spyOfferState) return null;
-		if (player.authToken !== this.spyOfferState.currentOfferAuthToken) return null;
+		if (this.roundPhase !== "offering-spies" || !this.spyOfferState)
+			return null;
+		if (player.authToken !== this.spyOfferState.currentOfferAuthToken)
+			return null;
 
 		return {
 			canRefuse: true,
@@ -963,6 +970,42 @@ class Game {
 		this.sendNewStateToAllPlayers();
 	};
 
+	kickPlayerByName = (actor, theName) => {
+		if (!this.isAdmin(actor)) {
+			this.emitUnauthorized(actor.socket);
+			return;
+		}
+
+		if (!this.isRoundActive()) {
+			this.emitActionError(
+				actor.socket,
+				"Players can only be kicked during an active round.",
+			);
+			return;
+		}
+
+		const player = this.findPlayerByName(theName);
+		if (!player || !player.connected || !player.name || player.observer) {
+			this.emitActionError(actor.socket, "Choose another active player.");
+			return;
+		}
+		if (player === actor) {
+			this.emitActionError(actor.socket, "You cannot kick yourself.");
+			return;
+		}
+
+		this.kickPlayer(player);
+		this.sendNewStateToAllPlayers();
+	};
+
+	kickPlayer = (player) => {
+		this.cleanupQuestionStateForPlayer(player);
+		player.observer = true;
+		player.isFirst = false;
+		player.revealedSpyStatus = player.role === "spy" ? "spy" : "not-spy";
+		player.canBePromoted = player.revealedSpyStatus !== "spy";
+	};
+
 	promoteObserverByName = (actor, theName) => {
 		if (!this.isAdmin(actor)) {
 			this.emitUnauthorized(actor.socket);
@@ -979,6 +1022,13 @@ class Game {
 
 		const player = this.findPlayerByName(theName);
 		if (!player || !player.connected || !player.observer) return;
+		if (!player.canBePromoted) {
+			this.emitActionError(
+				actor.socket,
+				"Revealed spies cannot be promoted back into the round.",
+			);
+			return;
+		}
 
 		this.promoteObserver(player);
 		this.sendNewStateToAllPlayers();
@@ -987,6 +1037,7 @@ class Game {
 	promoteObserver = (player) => {
 		player.observer = false;
 		player.isFirst = false;
+		player.canBePromoted = true;
 
 		if (!this.location || this.roundMode === "custom") {
 			player.role = null;

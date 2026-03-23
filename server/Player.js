@@ -12,6 +12,8 @@ class Player {
 	reset = () => {
 		this.role = null;
 		this.isFirst = false;
+		this.revealedSpyStatus = null;
+		this.canBePromoted = true;
 	};
 
 	clearDisconnectTimeout = () => {
@@ -27,6 +29,8 @@ class Player {
 		isCreator,
 		isAdmin,
 		isObserver: this.observer,
+		revealedSpyStatus: this.revealedSpyStatus,
+		canBePromoted: this.canBePromoted,
 	});
 
 	getPrivateInfo = (isCreator = false, isAdmin = false) => ({
