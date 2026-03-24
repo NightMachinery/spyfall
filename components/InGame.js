@@ -21,6 +21,7 @@ const InGame = ({ gameState, socket, isRocketcrab }) => {
 		spyOffer,
 		roundMode,
 		questionHistory,
+		accusationLog,
 		activeQuestion,
 		questionTurn,
 		accusationPhase,
@@ -28,6 +29,9 @@ const InGame = ({ gameState, socket, isRocketcrab }) => {
 	} = gameState;
 
 	const [timeLeft, setTimeLeft] = useState(latestServerTimeLeft);
+	const [spyGuessMode, setSpyGuessMode] = useState(false);
+	const [selectedGuessWord, setSelectedGuessWord] = useState("");
+	const [spyMarkedWords, setSpyMarkedWords] = useState({});
 	const t = useI18n();
 	const lang = useCurrentLocale();
 	const isSpy = me.role === "spy";
@@ -54,6 +58,25 @@ const InGame = ({ gameState, socket, isRocketcrab }) => {
 
 	useEffect(() => setTimeLeft(latestServerTimeLeft), [latestServerTimeLeft]);
 
+	useEffect(() => {
+		setSpyGuessMode(false);
+		setSelectedGuessWord("");
+		setSpyMarkedWords({});
+	}, [gameState.currentRoundNum]);
+
+	useEffect(() => {
+		if (!locationList.includes(selectedGuessWord)) {
+			setSelectedGuessWord("");
+		}
+	}, [locationList, selectedGuessWord]);
+
+	useEffect(() => {
+		if (!isSpy || me.guessesRemaining <= 0 || !isRoundActive) {
+			setSpyGuessMode(false);
+			setSelectedGuessWord("");
+		}
+	}, [isSpy, me.guessesRemaining, isRoundActive]);
+
 	const showTimer =
 		isRoundActive && settings.timeLimit !== 0 && latestServerTimeLeft !== null;
 	const timeExpired = timeLeft <= 0;
@@ -74,6 +97,35 @@ const InGame = ({ gameState, socket, isRocketcrab }) => {
 
 	const handleToggleManualObserver = (playerName) => {
 		socket.emit("togglePlayerObserver", playerName);
+	};
+
+	const handleToggleSpyWordMark = (word) => {
+		if (spyGuessMode) {
+			setSelectedGuessWord(word);
+			return;
+		}
+
+		setSpyMarkedWords((current) => ({
+			...current,
+			[word]: !current[word],
+		}));
+	};
+
+	const handleStartSpyGuess = () => {
+		setSpyGuessMode(true);
+		setSelectedGuessWord("");
+	};
+
+	const handleCancelSpyGuess = () => {
+		setSpyGuessMode(false);
+		setSelectedGuessWord("");
+	};
+
+	const handleConfirmSpyGuess = () => {
+		if (!selectedGuessWord) return;
+		socket.emit("submitSpyGuess", selectedGuessWord);
+		setSpyGuessMode(false);
+		setSelectedGuessWord("");
 	};
 
 	return (
@@ -115,6 +167,11 @@ const InGame = ({ gameState, socket, isRocketcrab }) => {
 						spyOffer={spyOffer}
 						socket={socket}
 						t={t}
+						spyGuessMode={spyGuessMode}
+						selectedGuessWord={selectedGuessWord}
+						onStartSpyGuess={handleStartSpyGuess}
+						onCancelSpyGuess={handleCancelSpyGuess}
+						onConfirmSpyGuess={handleConfirmSpyGuess}
 					/>
 				</div>
 			</HideableContainer>
@@ -154,6 +211,7 @@ const InGame = ({ gameState, socket, isRocketcrab }) => {
 						socket={socket}
 						accusationPhase={accusationPhase}
 						activeAccusationVote={activeAccusationVote}
+						accusationLog={accusationLog}
 					/>
 				</>
 			) : (
@@ -260,13 +318,16 @@ const InGame = ({ gameState, socket, isRocketcrab }) => {
 					<h5>
 						{isCustomRound ? "Word Reference" : t("ui.location reference")}
 					</h5>
-					<ul className="location-list">
-						{locationList.map((name, i) => (
-							<StrikeableBox key={i}>
-								{renderRoundLabel(name, isCustomRound, t)}
-							</StrikeableBox>
-						))}
-					</ul>
+					<LocationReferenceList
+						locationList={locationList}
+						isCustomRound={isCustomRound}
+						t={t}
+						isSpy={isSpy}
+						spyGuessMode={spyGuessMode}
+						selectedGuessWord={selectedGuessWord}
+						spyMarkedWords={spyMarkedWords}
+						onWordClick={handleToggleSpyWordMark}
+					/>
 				</>
 			)}
 
@@ -302,7 +363,6 @@ const InGame = ({ gameState, socket, isRocketcrab }) => {
 const RolePanel = ({
 	me,
 	location,
-	locationList,
 	isCustomRound,
 	isSpy,
 	isObserver,
@@ -310,15 +370,12 @@ const RolePanel = ({
 	spyOffer,
 	socket,
 	t,
+	spyGuessMode,
+	selectedGuessWord,
+	onStartSpyGuess,
+	onCancelSpyGuess,
+	onConfirmSpyGuess,
 }) => {
-	const [guess, setGuess] = useState("");
-
-	useEffect(() => {
-		if (!locationList.includes(guess)) {
-			setGuess(locationList[0] || "");
-		}
-	}, [locationList, guess]);
-
 	if (isObserver) {
 		return (
 			<div
@@ -346,29 +403,37 @@ const RolePanel = ({
 						: t("ui.you are the spy")}
 				</div>
 				<div className="settings-help">Guesses left: {me.guessesRemaining}</div>
-				{me.guessesRemaining > 0 && locationList.length > 0 && (
+				<div className="settings-help">
+					Tap words below to cross them out. Use guess mode only when you want
+					to submit a real guess.
+				</div>
+				{me.guessesRemaining > 0 && (
 					<div style={{ marginTop: "0.75em" }}>
-						<label htmlFor="spy-guess-select">Declare a guess:</label>
-						<select
-							id="spy-guess-select"
-							className="u-full-width"
-							value={guess}
-							onChange={({ target: { value } }) => setGuess(value)}
-						>
-							<option value="">Choose a guess</option>
-							{locationList.map((entry) => (
-								<option key={entry} value={entry}>
-									{entry}
-								</option>
-							))}
-						</select>
-						<button
-							className="btn-small"
-							disabled={!guess}
-							onClick={() => socket.emit("submitSpyGuess", guess)}
-						>
-							Submit guess
-						</button>
+						{!spyGuessMode ? (
+							<button className="btn-small" onClick={onStartSpyGuess}>
+								Guess a word
+							</button>
+						) : (
+							<>
+								<div className="settings-help">
+									Guess mode is active. Tap a word below to select it, then
+									confirm or cancel.
+								</div>
+								<div className="settings-help">
+									Selected guess: {selectedGuessWord || "none"}
+								</div>
+								<button
+									className="btn-small"
+									disabled={!selectedGuessWord}
+									onClick={onConfirmSpyGuess}
+								>
+									Guess selected word
+								</button>
+								<button className="btn-small" onClick={onCancelSpyGuess}>
+									Cancel
+								</button>
+							</>
+						)}
 					</div>
 				)}
 			</>
@@ -630,6 +695,7 @@ const AccusationPanel = ({
 	socket,
 	accusationPhase,
 	activeAccusationVote,
+	accusationLog,
 }) => {
 	const [targetName, setTargetName] = useState("");
 	const [starterTargetName, setStarterTargetName] = useState("");
@@ -816,8 +882,70 @@ const AccusationPanel = ({
 						</ul>
 					</div>
 				)}
+
+				<div style={{ marginTop: "1em" }}>
+					<h5>Accusation Log</h5>
+					{(!accusationLog || accusationLog.length === 0) && (
+						<div className="settings-help">No accusation events yet.</div>
+					)}
+					{accusationLog?.length > 0 && (
+						<ol className="question-history-list">
+							{accusationLog.map((entry) => (
+								<li key={entry.id}>{entry.message}</li>
+							))}
+						</ol>
+					)}
+				</div>
 			</div>
 		</HideableContainer>
+	);
+};
+
+const LocationReferenceList = ({
+	locationList,
+	isCustomRound,
+	t,
+	isSpy,
+	spyGuessMode,
+	selectedGuessWord,
+	spyMarkedWords,
+	onWordClick,
+}) => {
+	if (!isSpy) {
+		return (
+			<ul className="location-list">
+				{locationList.map((name, i) => (
+					<StrikeableBox key={i}>
+						{renderRoundLabel(name, isCustomRound, t)}
+					</StrikeableBox>
+				))}
+			</ul>
+		);
+	}
+
+	return (
+		<ul className="location-list">
+			{locationList.map((name) => {
+				const isSelected = selectedGuessWord === name;
+				const isMarked = Boolean(spyMarkedWords[name]);
+				const className = isMarked && !spyGuessMode ? "box-striked" : "box";
+				return (
+					<li key={name} onClick={() => onWordClick(name)}>
+						<div
+							className={className}
+							style={
+								spyGuessMode && isSelected
+									? { outline: "2px solid #cc0000", fontWeight: 700 }
+									: undefined
+							}
+						>
+							{renderRoundLabel(name, isCustomRound, t)}
+							{spyGuessMode && isSelected && " (selected guess)"}
+						</div>
+					</li>
+				);
+			})}
+		</ul>
 	);
 };
 

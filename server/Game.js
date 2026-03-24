@@ -28,6 +28,7 @@ class Game {
 		this.currentRoundNum = 0;
 		this.currentRoundSpyCount = 0;
 		this.questionHistory = [];
+		this.accusationLog = [];
 		this.activeQuestion = null;
 		this.questionTurn = {
 			suggestedAskerAuthToken: null,
@@ -70,6 +71,17 @@ class Game {
 		for (const player of this.players) {
 			if (!player.socket || !player.connected) continue;
 			player.socket.emit("gameChange", this.getStateForPlayer(player));
+		}
+	};
+
+	appendAccusationLog = (message) => {
+		if (!message) return;
+		this.accusationLog.push({
+			id: `acc-${Date.now()}-${Math.random().toString(16).slice(2)}`,
+			message,
+		});
+		if (this.accusationLog.length > 80) {
+			this.accusationLog = this.accusationLog.slice(-80);
 		}
 	};
 
@@ -511,6 +523,7 @@ class Game {
 		this.timeLeft = null;
 		this.timePaused = false;
 		this.questionHistory = [];
+		this.accusationLog = [];
 		this.activeQuestion = null;
 		this.questionTurn = {
 			suggestedAskerAuthToken: null,
@@ -587,6 +600,7 @@ class Game {
 		this.timeLeft = null;
 		this.timePaused = false;
 		this.questionHistory = [];
+		this.accusationLog = [];
 		this.activeQuestion = null;
 		this.questionTurn = {
 			suggestedAskerAuthToken: null,
@@ -1294,6 +1308,7 @@ class Game {
 		this.accusationPhase = {
 			queue: this.buildPlayerAccusationQueue(player),
 			currentTurnAuthToken: null,
+			currentTurnKind: null,
 			scoreByAuthToken: {},
 		};
 		this.startAccusationVote({
@@ -1370,6 +1385,7 @@ class Game {
 	passAccusationTurn = (player) => {
 		if (!this.accusationPhase || this.activeAccusationVote) return;
 		if (this.accusationPhase.currentTurnAuthToken !== player.authToken) return;
+		this.appendAccusationLog(`${player.name} passed their accusation turn.`);
 		this.accusationPhase.currentTurnAuthToken = null;
 		this.accusationPhase.currentTurnKind = null;
 		this.advanceAccusationPhase();
@@ -1428,6 +1444,11 @@ class Game {
 			votes: {},
 			isCounter: Boolean(isCounter),
 		};
+		this.appendAccusationLog(
+			mode === "terminal"
+				? `${initiator.name} called a vote on ${this.activeAccusationVote.targetName}.`
+				: `${initiator.name} ${isCounter ? "counter-accused" : "accused"} ${this.activeAccusationVote.targetName}. Vote started.`,
+		);
 		this.maybeFinalizeAccusationVote();
 		this.sendNewStateToAllPlayers();
 	};
@@ -1443,6 +1464,9 @@ class Game {
 		}
 		if (this.activeAccusationVote.votes[player.authToken] !== undefined) return;
 		this.activeAccusationVote.votes[player.authToken] = Boolean(voteValue);
+		this.appendAccusationLog(
+			`${player.name} voted ${voteValue ? "yes" : "no"} on ${this.activeAccusationVote.targetName}.`,
+		);
 		this.maybeFinalizeAccusationVote();
 		this.sendNewStateToAllPlayers();
 	};
@@ -1472,6 +1496,9 @@ class Game {
 		const vote = this.activeAccusationVote;
 		const passed = yesVotes > total / 2;
 		this.activeAccusationVote = null;
+		this.appendAccusationLog(
+			`Vote on ${vote.targetName} ${passed ? "passed" : "failed"} (${yesVotes} yes, ${noVotes} no).`,
+		);
 
 		if (vote.mode === "terminal") {
 			if (passed) {
@@ -1544,6 +1571,9 @@ class Game {
 		this.accusationPhase = null;
 
 		if (scoreEntries.length === 0) {
+			this.appendAccusationLog(
+				"The accusation phase ended with no scored accusations.",
+			);
 			this.sendNewStateToAllPlayers();
 			return;
 		}
@@ -1553,12 +1583,18 @@ class Game {
 			scoreEntries.length > 1 &&
 			scoreEntries[0].yesVotes === scoreEntries[1].yesVotes
 		) {
+			this.appendAccusationLog(
+				"The accusation phase ended in a tie, so nobody was resolved.",
+			);
 			this.sendNewStateToAllPlayers();
 			return;
 		}
 
 		const winner = scoreEntries[0];
 		if (!winner || winner.yesVotes <= 0) {
+			this.appendAccusationLog(
+				"No accusation received any yes votes, so play continues.",
+			);
 			this.sendNewStateToAllPlayers();
 			return;
 		}
@@ -1571,6 +1607,7 @@ class Game {
 		if (targetPlayer.role === "spy") {
 			targetPlayer.revealedSpyStatus = "spy";
 			targetPlayer.canBePromoted = false;
+			this.appendAccusationLog(`${targetPlayer.name} was revealed as a spy.`);
 			this.refreshSuggestedQuestionTurn(targetPlayer.authToken);
 			if (this.maybeAutoEndWhenAllSpiesRevealed()) return;
 		} else {
@@ -1579,6 +1616,9 @@ class Game {
 			targetPlayer.revealedSpyStatus = "not-spy";
 			targetPlayer.canBePromoted = false;
 			targetPlayer.isFirst = false;
+			this.appendAccusationLog(
+				`${targetPlayer.name} was not a spy and is out of the round.`,
+			);
 			this.cleanupInteractiveStateForPlayer(targetPlayer);
 			this.refreshSuggestedQuestionTurn(targetPlayer.authToken);
 		}
@@ -1979,6 +2019,7 @@ class Game {
 		AVAILABLE_LOCATION_PACKS: Locations.AVAILABLE_LOCATION_PACKS,
 		currentRoundNum: this.currentRoundNum,
 		questionHistory: this.questionHistory,
+		accusationLog: this.accusationLog,
 		activeQuestion: this.activeQuestion
 			? {
 					id: this.activeQuestion.id,
