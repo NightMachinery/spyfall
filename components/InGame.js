@@ -24,14 +24,13 @@ const InGame = ({ gameState, socket, isRocketcrab }) => {
 		accusationLog,
 		activeQuestion,
 		questionTurn,
-		accusationPhase,
 		activeAccusationVote,
 	} = gameState;
 
 	const [timeLeft, setTimeLeft] = useState(latestServerTimeLeft);
 	const [spyGuessMode, setSpyGuessMode] = useState(false);
 	const [selectedGuessWord, setSelectedGuessWord] = useState("");
-	const [spyMarkedWords, setSpyMarkedWords] = useState({});
+	const [wordMarks, setWordMarks] = useState({});
 	const t = useI18n();
 	const lang = useCurrentLocale();
 	const isSpy = me.role === "spy";
@@ -47,6 +46,7 @@ const InGame = ({ gameState, socket, isRocketcrab }) => {
 		(isRoundActive || isTimeoutGuessPhase) &&
 		me.guessesRemaining > 0 &&
 		!me.timeoutGuessDone;
+	const locationListKey = locationList.join("\u0000");
 
 	useEffect(() => {
 		logEvent("player-roundCount", gameState.currentRoundNum + 1);
@@ -68,8 +68,8 @@ const InGame = ({ gameState, socket, isRocketcrab }) => {
 	useEffect(() => {
 		setSpyGuessMode(false);
 		setSelectedGuessWord("");
-		setSpyMarkedWords({});
-	}, [gameState.currentRoundNum]);
+		setWordMarks({});
+	}, [gameState.currentRoundNum, locationListKey]);
 
 	useEffect(() => {
 		if (!locationList.includes(selectedGuessWord)) {
@@ -109,16 +109,24 @@ const InGame = ({ gameState, socket, isRocketcrab }) => {
 		socket.emit("togglePlayerObserver", playerName);
 	};
 
-	const handleToggleSpyWordMark = (word) => {
+	const handleCycleWordMark = (word) => {
 		if (spyGuessMode) {
 			setSelectedGuessWord(word);
 			return;
 		}
 
-		setSpyMarkedWords((current) => ({
-			...current,
-			[word]: !current[word],
-		}));
+		setWordMarks((current) => {
+			const nextValue = ((current[word] || 0) + 1) % 3;
+			if (nextValue === 0) {
+				const next = { ...current };
+				delete next[word];
+				return next;
+			}
+			return {
+				...current,
+				[word]: nextValue,
+			};
+		});
 	};
 
 	const handleStartSpyGuess = () => {
@@ -285,8 +293,7 @@ const InGame = ({ gameState, socket, isRocketcrab }) => {
 							{player.revealedSpyStatus && (
 								<strong>
 									{" "}
-									(revealed: {formatRevealedSpyStatus(player.revealedSpyStatus)}
-									)
+									(revealed: {formatRevealedSpyStatus(player.revealedSpyStatus)})
 								</strong>
 							)}
 						</div>
@@ -337,16 +344,12 @@ const InGame = ({ gameState, socket, isRocketcrab }) => {
 									{player.canBePromoted ? (
 										<button
 											className="btn-small"
-											onClick={() =>
-												socket.emit("promoteObserver", player.name)
-											}
+											onClick={() => socket.emit("promoteObserver", player.name)}
 										>
 											Promote into round
 										</button>
 									) : (
-										<div className="settings-help">
-											Cannot rejoin this round.
-										</div>
+										<div className="settings-help">Cannot rejoin this round.</div>
 									)}
 								</div>
 							)}
@@ -363,11 +366,10 @@ const InGame = ({ gameState, socket, isRocketcrab }) => {
 						locationList={locationList}
 						isCustomRound={isCustomRound}
 						t={t}
-						isSpy={isSpy}
 						spyGuessMode={spyGuessMode}
 						selectedGuessWord={selectedGuessWord}
-						spyMarkedWords={spyMarkedWords}
-						onWordClick={handleToggleSpyWordMark}
+						wordMarks={wordMarks}
+						onWordClick={handleCycleWordMark}
 					/>
 				</>
 			)}
@@ -447,8 +449,9 @@ const RolePanel = ({
 				</div>
 				<div className="settings-help">Guesses left: {me.guessesRemaining}</div>
 				<div className="settings-help">
-					Tap words below to cross them out. Use guess mode only when you want
-					to submit a real guess.
+					{isTimeoutGuessPhase
+						? "The timer ended. Use any remaining guesses, or mark yourself done."
+						: "Tap words below to cycle neutral, yellow, and pink. Use guess mode only when you want to submit a real guess."}
 				</div>
 				{me.timeoutGuessDone && isTimeoutGuessPhase && (
 					<div className="settings-help">You marked yourself done guessing.</div>
@@ -903,48 +906,38 @@ const LocationReferenceList = ({
 	locationList,
 	isCustomRound,
 	t,
-	isSpy,
 	spyGuessMode,
 	selectedGuessWord,
-	spyMarkedWords,
+	wordMarks,
 	onWordClick,
-}) => {
-	if (!isSpy) {
-		return (
-			<ul className="location-list">
-				{locationList.map((name, i) => (
-					<StrikeableBox key={i}>
+}) => (
+	<ul className="location-list">
+		{locationList.map((name) => {
+			const isSelected = selectedGuessWord === name;
+			const markState = wordMarks[name] || 0;
+			return (
+				<li key={name} onClick={() => onWordClick(name)}>
+					<div
+						className={getWordMarkClassName(markState)}
+						style={
+							spyGuessMode && isSelected
+								? { outline: "2px solid #cc0000", fontWeight: 700 }
+								: undefined
+						}
+					>
 						{renderRoundLabel(name, isCustomRound, t)}
-					</StrikeableBox>
-				))}
-			</ul>
-		);
-	}
+						{spyGuessMode && isSelected && " (selected guess)"}
+					</div>
+				</li>
+			);
+		})}
+	</ul>
+);
 
-	return (
-		<ul className="location-list">
-			{locationList.map((name) => {
-				const isSelected = selectedGuessWord === name;
-				const isMarked = Boolean(spyMarkedWords[name]);
-				const className = isMarked && !spyGuessMode ? "box-striked" : "box";
-				return (
-					<li key={name} onClick={() => onWordClick(name)}>
-						<div
-							className={className}
-							style={
-								spyGuessMode && isSelected
-									? { outline: "2px solid #cc0000", fontWeight: 700 }
-									: undefined
-							}
-						>
-							{renderRoundLabel(name, isCustomRound, t)}
-							{spyGuessMode && isSelected && " (selected guess)"}
-						</div>
-					</li>
-				);
-			})}
-		</ul>
-	);
+const getWordMarkClassName = (markState) => {
+	if (markState === 1) return "box box-mark-yellow";
+	if (markState === 2) return "box box-mark-pink";
+	return "box";
 };
 
 const renderRoundLabel = (value, isCustomRound, t) =>
