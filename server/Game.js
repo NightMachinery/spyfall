@@ -36,6 +36,7 @@ class Game {
 		};
 		this.accusationPhase = null;
 		this.activeAccusationVote = null;
+		this.pendingRoundOutcome = null;
 		this.timer = null;
 		this.questionTimeout = null;
 		this.settings = {
@@ -90,6 +91,24 @@ class Game {
 			if (!player.socket || !player.connected) continue;
 			player.socket.emit("roundOutcome", payload);
 		}
+	};
+
+	getRevealKind = () => (this.roundMode === "custom" ? "word" : "location");
+
+	getRevealName = () => this.location?.name || null;
+
+	withReveal = (payload = {}) => {
+		const revealedName = this.getRevealName();
+		const revealKind = this.getRevealKind();
+		const revealText = revealedName
+			? ` Revealed ${revealKind}: ${revealedName}.`
+			: "";
+		return {
+			...payload,
+			revealKind,
+			revealedLocationName: revealedName,
+			text: `${payload?.text || ""}${revealText}`.trim(),
+		};
 	};
 
 	initPlayer(socket, authToken) {
@@ -233,6 +252,8 @@ class Game {
 		} else if (this.status !== "ingame") {
 			this.normalizeSettings();
 			this.checkIfReady();
+		} else if (this.roundPhase === "timeout-guess") {
+			this.maybeFinalizeTimeoutGuessPhase();
 		} else if (this.accusationPhase || this.activeAccusationVote) {
 			this.reconcileAccusationState();
 		}
@@ -255,6 +276,7 @@ class Game {
 			} else {
 				this.normalizeSettings();
 				this.checkIfReady();
+				this.maybeFinalizeTimeoutGuessPhase();
 				this.reconcileAccusationState();
 			}
 			this.refreshSuggestedQuestionTurn();
@@ -421,6 +443,10 @@ class Game {
 			this.chooseQuestionOption(player, questionIndex),
 		);
 		socket.on("submitSpyGuess", (guess) => this.submitSpyGuess(player, guess));
+		socket.on("completeTimeoutGuessing", () =>
+			this.completeTimeoutGuessing(player),
+		);
+		socket.on("endTimeoutGuessPhase", () => this.endTimeoutGuessPhase(player));
 		socket.on("startPlayerAccusation", (targetName) =>
 			this.startPlayerAccusation(player, targetName),
 		);
@@ -530,6 +556,7 @@ class Game {
 			suggestedTargetAuthToken: null,
 		};
 		this.currentRoundSpyCount = 0;
+		this.pendingRoundOutcome = null;
 		this.players.forEach((thePlayer) => {
 			const manualObserver = thePlayer.manualObserver;
 			thePlayer.resetRoundState();
@@ -569,7 +596,7 @@ class Game {
 		roundPlayers.forEach((player) => {
 			player.guessesRemaining =
 				player.role === "spy" ? this.settings.spyGuessLimit : 0;
-			player.accusationsRemaining = this.settings.accusationsPerPlayer;
+			player.accusationsRemaining = 1;
 		});
 		this.roundPhase = "active";
 		this.refreshSuggestedQuestionTurn(
@@ -607,6 +634,7 @@ class Game {
 			suggestedTargetAuthToken: null,
 		};
 		this.currentRoundSpyCount = 0;
+		this.pendingRoundOutcome = null;
 		this.resetSpyOfferState();
 		this.resetAccusationState();
 		this.clearTimer();
@@ -627,7 +655,8 @@ class Game {
 	};
 
 	finishRoundWithOutcome = (payload) => {
-		this.emitRoundOutcome(payload);
+		this.pendingRoundOutcome = null;
+		this.emitRoundOutcome(this.withReveal(payload));
 		this.resetToLobbyState();
 	};
 
@@ -903,6 +932,94 @@ class Game {
 		return values[values.length - 1];
 	};
 
+	cancelInteractiveRoundState = () => {
+		this.clearQuestionTimeout();
+		this.activeQuestion = null;
+		this.resetAccusationState();
+		this.refreshSuggestedQuestionTurn();
+	};
+
+	canPlayerSubmitSpyGuess = (player) =>
+		Boolean(
+			player &&
+				player.connected &&
+				player.name &&
+				!player.manualObserver &&
+				!player.observer &&
+				player.role === "spy" &&
+				player.revealedSpyStatus !== "spy" &&
+				player.guessesRemaining > 0 &&
+				this.status === "ingame" &&
+				(this.roundPhase === "active" ||
+					(this.roundPhase === "timeout-guess" && !player.timeoutGuessDone)),
+		);
+
+	canParticipateInTimeoutGuess = (player) =>
+		Boolean(
+			this.roundPhase === "timeout-guess" &&
+				player &&
+				player.connected &&
+				player.name &&
+				!player.manualObserver &&
+				!player.observer &&
+				player.role === "spy" &&
+				player.revealedSpyStatus !== "spy",
+		);
+
+	getPendingTimeoutGuessers = () =>
+		this.players.filter(
+			(player) =>
+				this.canParticipateInTimeoutGuess(player) &&
+				player.guessesRemaining > 0 &&
+				!player.timeoutGuessDone,
+		);
+
+	handleRoundTimerExpired = () => {
+		if (!this.isRoundActive()) return;
+		this.clearTimer();
+		this.timeLeft = 0;
+		this.timePaused = false;
+		this.pendingRoundOutcome = {
+			title: "Spies win",
+			text: "Time expired before the non-spies finished the round.",
+			everyoneWins: false,
+		};
+		this.players.forEach((player) => {
+			player.timeoutGuessDone = false;
+		});
+		this.cancelInteractiveRoundState();
+		this.roundPhase = "timeout-guess";
+		if (this.getPendingTimeoutGuessers().length === 0) {
+			this.finishRoundWithOutcome(this.pendingRoundOutcome);
+			return;
+		}
+		this.sendNewStateToAllPlayers();
+	};
+
+	maybeFinalizeTimeoutGuessPhase = () => {
+		if (this.roundPhase !== "timeout-guess" || !this.pendingRoundOutcome) return;
+		if (this.getPendingTimeoutGuessers().length > 0) return;
+		this.finishRoundWithOutcome(this.pendingRoundOutcome);
+	};
+
+	completeTimeoutGuessing = (player) => {
+		if (!this.canParticipateInTimeoutGuess(player)) return;
+		player.timeoutGuessDone = true;
+		this.maybeFinalizeTimeoutGuessPhase();
+		if (this.roundPhase === "timeout-guess") {
+			this.sendNewStateToAllPlayers();
+		}
+	};
+
+	endTimeoutGuessPhase = (player) => {
+		if (!this.isAdmin(player)) {
+			this.emitUnauthorized(player.socket);
+			return;
+		}
+		if (this.roundPhase !== "timeout-guess" || !this.pendingRoundOutcome) return;
+		this.finishRoundWithOutcome(this.pendingRoundOutcome);
+	};
+
 	startTimer = () => {
 		this.clearTimer();
 		this.timeLeft = this.settings.timeLimit * 60;
@@ -913,6 +1030,7 @@ class Game {
 			if (this.timeLeft > 0) return;
 			this.timeLeft = 0;
 			this.clearTimer();
+			this.handleRoundTimerExpired();
 		}, 1000);
 	};
 
@@ -969,7 +1087,6 @@ class Game {
 				"autoEndWhenAllSpiesRevealed",
 				"answerFlipChancePercent",
 				"spyGuessLimit",
-				"accusationsPerPlayer",
 				"questionResponseSeconds",
 			]),
 		};
@@ -1028,11 +1145,7 @@ class Game {
 				100,
 			),
 			spyGuessLimit: clamp(parseInteger(inputSettings.spyGuessLimit, 2), 0, 20),
-			accusationsPerPlayer: clamp(
-				parseInteger(inputSettings.accusationsPerPlayer, 1),
-				0,
-				20,
-			),
+			accusationsPerPlayer: 1,
 			questionResponseSeconds: clamp(
 				parseInteger(inputSettings.questionResponseSeconds, 0),
 				0,
@@ -1283,11 +1396,7 @@ class Game {
 
 	startPlayerAccusation = (player, targetName) => {
 		if (!this.canStartPlayerAccusation(player)) return;
-		if (
-			this.activeQuestion ||
-			this.activeAccusationVote ||
-			this.accusationPhase
-		) {
+		if (this.activeQuestion || this.activeAccusationVote) {
 			this.emitActionError(
 				player.socket,
 				"Finish the current interaction first.",
@@ -1305,124 +1414,39 @@ class Game {
 		}
 
 		player.accusationsRemaining = Math.max(0, player.accusationsRemaining - 1);
-		this.accusationPhase = {
-			queue: this.buildPlayerAccusationQueue(player),
-			currentTurnAuthToken: null,
-			currentTurnKind: null,
-			scoreByAuthToken: {},
-		};
 		this.startAccusationVote({
 			mode: "player",
 			targetType: "player",
 			targetPlayer,
 			initiator: player,
-			isCounter: false,
 		});
 	};
 
-	buildPlayerAccusationQueue = (startingPlayer) => {
-		const eligiblePlayers = this.players.filter(
-			(player) =>
-				player.connected &&
-				player.name &&
-				!player.manualObserver &&
-				!player.observer &&
-				player.revealedSpyStatus !== "spy",
-		);
-		const rotated = rotatePlayersFrom(
-			eligiblePlayers,
-			startingPlayer.authToken,
-		);
-		const maxRemaining = rotated.reduce(
-			(max, player) => Math.max(max, player.accusationsRemaining),
-			0,
-		);
-		const queue = [];
-		for (let round = 0; round < maxRemaining; round++) {
-			for (const player of rotated) {
-				if (player.accusationsRemaining > round) {
-					queue.push({ authToken: player.authToken, kind: "normal" });
-				}
-			}
-		}
-		return queue;
-	};
+	submitPlayerAccusation = () => {};
 
-	submitPlayerAccusation = (player, targetName) => {
-		if (!this.accusationPhase || this.activeAccusationVote) return;
-		if (this.accusationPhase.currentTurnAuthToken !== player.authToken) return;
-
-		const currentTurn = this.accusationPhase.currentTurnAuthToken;
-		const targetPlayer = this.findPlayerByName(sanitizeName(targetName));
-		if (
-			!this.canBePlayerAccusationTarget(targetPlayer) ||
-			targetPlayer === player
-		) {
-			this.emitActionError(player.socket, "Choose another active player.");
-			return;
-		}
-
-		const queueEntry = this.accusationPhase.currentTurnKind;
-		if (queueEntry !== "counter") {
-			if (!this.canStartPlayerAccusation(player)) return;
-			player.accusationsRemaining = Math.max(
-				0,
-				player.accusationsRemaining - 1,
-			);
-		}
-
-		this.accusationPhase.currentTurnAuthToken = null;
-		this.accusationPhase.currentTurnKind = null;
-		this.startAccusationVote({
-			mode: "player",
-			targetType: "player",
-			targetPlayer,
-			initiator: player,
-			isCounter: queueEntry === "counter",
-		});
-	};
-
-	passAccusationTurn = (player) => {
-		if (!this.accusationPhase || this.activeAccusationVote) return;
-		if (this.accusationPhase.currentTurnAuthToken !== player.authToken) return;
-		this.appendAccusationLog(`${player.name} passed their accusation turn.`);
-		this.accusationPhase.currentTurnAuthToken = null;
-		this.accusationPhase.currentTurnKind = null;
-		this.advanceAccusationPhase();
-	};
+	passAccusationTurn = () => {};
 
 	startTerminalAccusation = (player, targetType) => {
-		if (!this.isRoundActive()) return;
-		if (
-			this.activeQuestion ||
-			this.activeAccusationVote ||
-			this.accusationPhase
-		) {
+		if (!this.canStartPlayerAccusation(player)) return;
+		if (this.activeQuestion || this.activeAccusationVote) {
 			this.emitActionError(
 				player.socket,
 				"Finish the current interaction first.",
 			);
 			return;
 		}
-		if (!this.canPlayerAskQuestion(player)) return;
 		if (targetType !== "no-spy" && targetType !== "everyone-remaining-spy") {
 			return;
 		}
+		player.accusationsRemaining = Math.max(0, player.accusationsRemaining - 1);
 		this.startAccusationVote({
 			mode: "terminal",
 			targetType,
 			initiator: player,
-			isCounter: false,
 		});
 	};
 
-	startAccusationVote = ({
-		mode,
-		targetType,
-		targetPlayer = null,
-		initiator,
-		isCounter,
-	}) => {
+	startAccusationVote = ({ mode, targetType, targetPlayer = null, initiator }) => {
 		const eligibleVoters = this.players
 			.filter((player) => {
 				if (!this.canPlayerVote(player)) return false;
@@ -1442,12 +1466,11 @@ class Game {
 			initiatedByName: initiator.name,
 			eligibleVoterAuthTokens: eligibleVoters,
 			votes: {},
-			isCounter: Boolean(isCounter),
 		};
 		this.appendAccusationLog(
 			mode === "terminal"
 				? `${initiator.name} called a vote on ${this.activeAccusationVote.targetName}.`
-				: `${initiator.name} ${isCounter ? "counter-accused" : "accused"} ${this.activeAccusationVote.targetName}. Vote started.`,
+				: `${initiator.name} accused ${this.activeAccusationVote.targetName}. Vote started.`,
 		);
 		this.maybeFinalizeAccusationVote();
 		this.sendNewStateToAllPlayers();
@@ -1510,120 +1533,39 @@ class Game {
 			return;
 		}
 
-		if (this.accusationPhase && vote.targetAuthToken) {
-			const currentScore = this.accusationPhase.scoreByAuthToken[
-				vote.targetAuthToken
-			] || {
-				targetAuthToken: vote.targetAuthToken,
-				targetName: vote.targetName,
-				yesVotes: 0,
-			};
-			currentScore.yesVotes += yesVotes;
-			currentScore.targetName = vote.targetName;
-			this.accusationPhase.scoreByAuthToken[vote.targetAuthToken] =
-				currentScore;
-		}
-
-		if (passed && vote.targetAuthToken && this.accusationPhase) {
-			const targetPlayer = this.findPlayerByAuthToken(vote.targetAuthToken);
-			if (this.canBePlayerAccusationTarget(targetPlayer)) {
-				this.accusationPhase.queue.unshift({
-					authToken: targetPlayer.authToken,
-					kind: "counter",
-				});
-			}
-		}
-
-		this.advanceAccusationPhase();
-	};
-
-	advanceAccusationPhase = () => {
-		if (!this.accusationPhase) return;
-		if (this.activeAccusationVote) return;
-
-		while (this.accusationPhase.queue.length > 0) {
-			const nextEntry = this.accusationPhase.queue.shift();
-			const nextPlayer = this.findPlayerByAuthToken(nextEntry.authToken);
-			if (!nextPlayer) continue;
-			if (nextEntry.kind === "counter") {
-				if (!this.canBePlayerAccusationTarget(nextPlayer)) continue;
-			} else if (!this.canStartPlayerAccusation(nextPlayer)) {
-				continue;
-			}
-
-			this.accusationPhase.currentTurnAuthToken = nextPlayer.authToken;
-			this.accusationPhase.currentTurnKind = nextEntry.kind;
+		if (!passed || !vote.targetAuthToken) {
 			this.sendNewStateToAllPlayers();
 			return;
 		}
-
-		this.resolveAccusationPhase();
-	};
-
-	resolveAccusationPhase = () => {
-		if (!this.accusationPhase) return;
-		const scoreEntries = Object.values(
-			this.accusationPhase.scoreByAuthToken,
-		).filter((entry) => {
-			const targetPlayer = this.findPlayerByAuthToken(entry.targetAuthToken);
-			return this.canBePlayerAccusationTarget(targetPlayer);
-		});
-		this.accusationPhase = null;
-
-		if (scoreEntries.length === 0) {
-			this.appendAccusationLog(
-				"The accusation phase ended with no scored accusations.",
-			);
-			this.sendNewStateToAllPlayers();
-			return;
-		}
-
-		scoreEntries.sort((a, b) => b.yesVotes - a.yesVotes);
-		if (
-			scoreEntries.length > 1 &&
-			scoreEntries[0].yesVotes === scoreEntries[1].yesVotes
-		) {
-			this.appendAccusationLog(
-				"The accusation phase ended in a tie, so nobody was resolved.",
-			);
-			this.sendNewStateToAllPlayers();
-			return;
-		}
-
-		const winner = scoreEntries[0];
-		if (!winner || winner.yesVotes <= 0) {
-			this.appendAccusationLog(
-				"No accusation received any yes votes, so play continues.",
-			);
-			this.sendNewStateToAllPlayers();
-			return;
-		}
-		const targetPlayer = this.findPlayerByAuthToken(winner.targetAuthToken);
+		const targetPlayer = this.findPlayerByAuthToken(vote.targetAuthToken);
 		if (!this.canBePlayerAccusationTarget(targetPlayer)) {
 			this.sendNewStateToAllPlayers();
 			return;
 		}
+		this.resolveAccusationTarget(targetPlayer);
+		this.sendNewStateToAllPlayers();
+	};
 
+	resolveAccusationTarget = (targetPlayer) => {
 		if (targetPlayer.role === "spy") {
 			targetPlayer.revealedSpyStatus = "spy";
 			targetPlayer.canBePromoted = false;
 			this.appendAccusationLog(`${targetPlayer.name} was revealed as a spy.`);
 			this.refreshSuggestedQuestionTurn(targetPlayer.authToken);
 			if (this.maybeAutoEndWhenAllSpiesRevealed()) return;
-		} else {
-			targetPlayer.observer = true;
-			targetPlayer.observerReason = "accusation-not-spy";
-			targetPlayer.revealedSpyStatus = "not-spy";
-			targetPlayer.canBePromoted = false;
-			targetPlayer.isFirst = false;
-			this.appendAccusationLog(
-				`${targetPlayer.name} was not a spy and is out of the round.`,
-			);
-			this.cleanupInteractiveStateForPlayer(targetPlayer);
-			this.refreshSuggestedQuestionTurn(targetPlayer.authToken);
+			return;
 		}
 
-		this.sendNewStateToAllPlayers();
+		targetPlayer.observer = true;
+		targetPlayer.observerReason = "accusation-not-spy";
+		targetPlayer.revealedSpyStatus = "not-spy";
+		targetPlayer.canBePromoted = false;
+		targetPlayer.isFirst = false;
+		this.appendAccusationLog(
+			`${targetPlayer.name} was not a spy and is out of the round.`,
+		);
+		this.cleanupInteractiveStateForPlayer(targetPlayer);
+		this.refreshSuggestedQuestionTurn(targetPlayer.authToken);
 	};
 
 	evaluateTerminalAccusation = (targetType) => {
@@ -1658,21 +1600,7 @@ class Game {
 	};
 
 	submitSpyGuess = (player, guess) => {
-		if (!this.isRoundActive()) return;
-		if (
-			this.activeQuestion ||
-			this.activeAccusationVote ||
-			this.accusationPhase
-		) {
-			this.emitActionError(
-				player.socket,
-				"Finish the current interaction first.",
-			);
-			return;
-		}
-		if (!player || !player.connected || !player.name) return;
-		if (player.manualObserver || player.observer) return;
-		if (player.role !== "spy" || player.guessesRemaining <= 0) return;
+		if (!this.canPlayerSubmitSpyGuess(player)) return;
 
 		const cleanGuess = sanitizeFreeText(guess, MAX_GUESS_LENGTH);
 		if (!cleanGuess) {
@@ -1680,12 +1608,25 @@ class Game {
 			return;
 		}
 
+		const isTimeoutGuess = this.roundPhase === "timeout-guess";
 		player.guessesRemaining = Math.max(0, player.guessesRemaining - 1);
-		if (this.location && cleanGuess === this.location.name) {
+		if (this.location && cleanGuess === this.location.name && !isTimeoutGuess) {
 			player.revealedSpyStatus = "spy";
 			player.canBePromoted = false;
-			this.refreshSuggestedQuestionTurn(player.authToken);
-			if (this.maybeAutoEndWhenAllSpiesRevealed()) return;
+			this.clearTimer();
+			this.timePaused = false;
+			this.cancelInteractiveRoundState();
+			this.finishRoundWithOutcome({
+				title: "Spies win",
+				text: `${player.name} guessed the ${this.getRevealKind()} correctly.`,
+				everyoneWins: false,
+			});
+			return;
+		}
+
+		if (isTimeoutGuess) {
+			this.maybeFinalizeTimeoutGuessPhase();
+			if (this.roundPhase !== "timeout-guess") return;
 		}
 
 		this.sendNewStateToAllPlayers();
@@ -1813,6 +1754,7 @@ class Game {
 		if (player.revealedSpyStatus !== "spy") {
 			player.role = defaultRole;
 		}
+		this.maybeFinalizeTimeoutGuessPhase();
 		this.reconcileAccusationState();
 		this.refreshSuggestedQuestionTurn(player.authToken);
 	};
@@ -1842,11 +1784,12 @@ class Game {
 					? null
 					: this.location?.roles?.[this.location.roles.length - 1] || null;
 			player.guessesRemaining = 0;
-			player.accusationsRemaining = this.settings.accusationsPerPlayer;
+			player.accusationsRemaining = 1;
 		}
 
 		this.normalizeSettings();
 		this.checkIfReady();
+		this.maybeFinalizeTimeoutGuessPhase();
 		this.reconcileAccusationState();
 		this.refreshSuggestedQuestionTurn(player.authToken);
 		this.sendNewStateToAllPlayers();
@@ -1923,7 +1866,7 @@ class Game {
 
 	getVisibleLocationForPlayer = (player) => {
 		if (this.status !== "ingame") return this.location;
-		if (!this.isRoundActive()) return null;
+		if (!this.isRoundActive() && this.roundPhase !== "timeout-guess") return null;
 		if (
 			!this.location ||
 			player.role === "spy" ||
@@ -1936,7 +1879,7 @@ class Game {
 
 	getVisibleLocationListForPlayer = () => {
 		if (this.status !== "ingame") return this.locationList;
-		if (!this.isRoundActive()) return [];
+		if (!this.isRoundActive() && this.roundPhase !== "timeout-guess") return [];
 		return this.locationList;
 	};
 
@@ -1962,17 +1905,7 @@ class Game {
 	};
 
 	getAccusationPhaseForPlayer = () => {
-		if (!this.accusationPhase) return null;
-		const currentPlayer = this.findPlayerByAuthToken(
-			this.accusationPhase.currentTurnAuthToken,
-		);
-		return {
-			currentTurnName: currentPlayer?.name || null,
-			currentTurnKind: this.accusationPhase.currentTurnKind || null,
-			scoreEntries: Object.values(this.accusationPhase.scoreByAuthToken).sort(
-				(a, b) => b.yesVotes - a.yesVotes,
-			),
-		};
+		return null;
 	};
 
 	getActiveAccusationVoteForPlayer = (player) => {
@@ -1989,7 +1922,6 @@ class Game {
 			targetType: this.activeAccusationVote.targetType,
 			targetName: this.activeAccusationVote.targetName,
 			initiatedByName: this.activeAccusationVote.initiatedByName,
-			isCounter: this.activeAccusationVote.isCounter,
 			yesVotes,
 			noVotes,
 			pendingVotes: totalVotes - yesVotes - noVotes,

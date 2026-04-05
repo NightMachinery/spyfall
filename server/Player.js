@@ -18,6 +18,7 @@ class Player {
 		this.canBePromoted = true;
 		this.guessesRemaining = 0;
 		this.accusationsRemaining = 0;
+		this.timeoutGuessDone = false;
 	};
 
 	clearDisconnectTimeout = () => {
@@ -44,6 +45,7 @@ class Player {
 		...this.getPublicInfo(isCreator, isAdmin),
 		role: this.role,
 		guessesRemaining: this.guessesRemaining,
+		timeoutGuessDone: this.timeoutGuessDone,
 	});
 }
 

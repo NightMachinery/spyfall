@@ -307,20 +307,9 @@ const QuestionSettings = ({ settings, disabled, onUpdateSettings }) => (
 const AccusationSettings = ({ settings, disabled, onUpdateSettings }) => (
 	<div style={{ marginTop: "1em" }}>
 		<label>Accusations:</label>
-		<div className="settings-inline">
-			<div>
-				<span>Accusations per player</span>
-				<input
-					type="number"
-					min="0"
-					max="20"
-					value={settings.accusationsPerPlayer}
-					disabled={disabled}
-					onChange={({ target: { value } }) =>
-						onUpdateSettings({ accusationsPerPlayer: Number(value) })
-					}
-				/>
-			</div>
+		<div className="settings-help">
+			Each player gets exactly one accusation per round. This includes terminal
+			accusations.
 		</div>
 	</div>
 );

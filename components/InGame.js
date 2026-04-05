@@ -38,8 +38,15 @@ const InGame = ({ gameState, socket, isRocketcrab }) => {
 	const isObserver = Boolean(me.isObserver);
 	const isCustomRound = roundMode === "custom";
 	const isRoundActive = roundPhase === "active";
+	const isTimeoutGuessPhase = roundPhase === "timeout-guess";
 	const isSpyOfferPhase = roundPhase === "offering-spies";
+	const isRoundToolsVisible = isRoundActive || isTimeoutGuessPhase;
 	const canManageRoom = Boolean(me.isAdmin);
+	const canGuessNow =
+		isSpy &&
+		(isRoundActive || isTimeoutGuessPhase) &&
+		me.guessesRemaining > 0 &&
+		!me.timeoutGuessDone;
 
 	useEffect(() => {
 		logEvent("player-roundCount", gameState.currentRoundNum + 1);
@@ -48,13 +55,13 @@ const InGame = ({ gameState, socket, isRocketcrab }) => {
 
 	useEffect(() => {
 		let interval = null;
-		if (!timePaused && timeLeft > 0) {
+		if (!timePaused && timeLeft > 0 && isRoundToolsVisible) {
 			interval = setInterval(() => {
 				setTimeLeft((currentTimeLeft) => Math.max(0, currentTimeLeft - 1));
 			}, 1000);
 		}
 		return () => clearInterval(interval);
-	}, [timePaused, timeLeft]);
+	}, [isRoundToolsVisible, timePaused, timeLeft]);
 
 	useEffect(() => setTimeLeft(latestServerTimeLeft), [latestServerTimeLeft]);
 
@@ -71,18 +78,21 @@ const InGame = ({ gameState, socket, isRocketcrab }) => {
 	}, [locationList, selectedGuessWord]);
 
 	useEffect(() => {
-		if (!isSpy || me.guessesRemaining <= 0 || !isRoundActive) {
+		if (!canGuessNow) {
 			setSpyGuessMode(false);
 			setSelectedGuessWord("");
 		}
-	}, [isSpy, me.guessesRemaining, isRoundActive]);
+	}, [canGuessNow]);
 
 	const showTimer =
-		isRoundActive && settings.timeLimit !== 0 && latestServerTimeLeft !== null;
+		isRoundToolsVisible &&
+		settings.timeLimit !== 0 &&
+		latestServerTimeLeft !== null;
 	const timeExpired = timeLeft <= 0;
 	const minutesLeft = Math.floor((timeLeft || 0) / 60);
 	const secondsLeft = (((timeLeft || 0) % 60) + "").padStart(2, "0");
-	const showTapToPause = canManageRoom && !timePaused && timeLeft > 0;
+	const showTapToPause =
+		canManageRoom && isRoundActive && !timePaused && timeLeft > 0;
 
 	const handleKickPlayer = (playerName) =>
 		popup("Kick player", t("ui.back"), () =>
@@ -90,7 +100,7 @@ const InGame = ({ gameState, socket, isRocketcrab }) => {
 		);
 
 	const handleTogglePause = () => {
-		if (timeExpired || !canManageRoom) return;
+		if (timeExpired || !canManageRoom || !isRoundActive) return;
 		socket.emit("togglePause");
 		logEvent("togglePause", true);
 	};
@@ -112,6 +122,7 @@ const InGame = ({ gameState, socket, isRocketcrab }) => {
 	};
 
 	const handleStartSpyGuess = () => {
+		if (!canGuessNow) return;
 		setSpyGuessMode(true);
 		setSelectedGuessWord("");
 	};
@@ -133,7 +144,7 @@ const InGame = ({ gameState, socket, isRocketcrab }) => {
 			{showTimer && (
 				<div
 					style={{ marginBottom: "1em" }}
-					onClick={canManageRoom ? handleTogglePause : undefined}
+					onClick={canManageRoom && isRoundActive ? handleTogglePause : undefined}
 				>
 					<h4
 						className={
@@ -148,6 +159,11 @@ const InGame = ({ gameState, socket, isRocketcrab }) => {
 					<div>
 						{timePaused && <div className="red-text">Game paused</div>}
 						{showTapToPause && <div className="subtitle">Tap to pause</div>}
+						{isTimeoutGuessPhase && (
+							<div className="subtitle">
+								Main timer ended. Spies may use remaining guesses before reveal.
+							</div>
+						)}
 					</div>
 				</div>
 			)}
@@ -159,11 +175,11 @@ const InGame = ({ gameState, socket, isRocketcrab }) => {
 					<RolePanel
 						me={me}
 						location={location}
-						locationList={locationList}
 						isCustomRound={isCustomRound}
 						isSpy={isSpy}
 						isObserver={isObserver}
 						isSpyOfferPhase={isSpyOfferPhase}
+						isTimeoutGuessPhase={isTimeoutGuessPhase}
 						spyOffer={spyOffer}
 						socket={socket}
 						t={t}
@@ -176,45 +192,53 @@ const InGame = ({ gameState, socket, isRocketcrab }) => {
 				</div>
 			</HideableContainer>
 
-			<div style={{ marginBottom: "0.75em" }}>
-				{questionTurn?.suggestedAskerName ? (
+			{isTimeoutGuessPhase && (
+				<div className="question-active-card" style={{ marginBottom: "1em" }}>
 					<div>
-						Suggested asker: <strong>{questionTurn.suggestedAskerName}</strong>
-						{questionTurn?.suggestedTargetName && (
-							<>
-								{" "}
-								(default target:{" "}
-								<strong>{questionTurn.suggestedTargetName}</strong>)
-							</>
-						)}
+						Questions and accusations are closed while spies finish any remaining
+						guesses.
 					</div>
-				) : (
-					<div>No eligible question asker right now.</div>
-				)}
-			</div>
+					{canManageRoom && (
+						<div style={{ marginTop: "0.75em" }}>
+							<button
+								className="btn-small"
+								onClick={() => socket.emit("endTimeoutGuessPhase")}
+							>
+								End guess phase now
+							</button>
+						</div>
+					)}
+				</div>
+			)}
+
+			{isRoundActive && (
+				<div style={{ marginBottom: "0.75em" }}>
+					{questionTurn?.suggestedAskerName ? (
+						<div>
+							Suggested asker: <strong>{questionTurn.suggestedAskerName}</strong>
+							{questionTurn?.suggestedTargetName && (
+								<>
+									{" "}
+									(default target: <strong>{questionTurn.suggestedTargetName}</strong>)
+								</>
+							)}
+						</div>
+					) : (
+						<div>No eligible question asker right now.</div>
+					)}
+				</div>
+			)}
 
 			{isRoundActive ? (
-				<>
-					<QuestionHelper
-						activeQuestion={activeQuestion}
-						questionHistory={questionHistory}
-						players={players}
-						me={me}
-						socket={socket}
-						questionTurn={questionTurn}
-						activeAccusationVote={activeAccusationVote}
-						accusationPhase={accusationPhase}
-					/>
-					<AccusationPanel
-						players={players}
-						me={me}
-						socket={socket}
-						accusationPhase={accusationPhase}
-						activeAccusationVote={activeAccusationVote}
-						accusationLog={accusationLog}
-					/>
-				</>
-			) : (
+				<QuestionHelper
+					activeQuestion={activeQuestion}
+					players={players}
+					me={me}
+					socket={socket}
+					questionTurn={questionTurn}
+					activeAccusationVote={activeAccusationVote}
+				/>
+			) : !isTimeoutGuessPhase ? (
 				<HideableContainer title={"Round Tools"} initialHidden={false}>
 					<div className="status-container-content question-helper">
 						<div className="settings-help">
@@ -223,6 +247,25 @@ const InGame = ({ gameState, socket, isRocketcrab }) => {
 						</div>
 					</div>
 				</HideableContainer>
+			) : null}
+
+			{isRoundToolsVisible && (
+				<>
+					<QuestionStatus
+						activeQuestion={activeQuestion}
+						questionHistory={questionHistory}
+						me={me}
+						socket={socket}
+					/>
+					<AccusationPanel
+						players={players}
+						me={me}
+						socket={socket}
+						activeAccusationVote={activeAccusationVote}
+						accusationLog={accusationLog}
+						isRoundActive={isRoundActive}
+					/>
+				</>
 			)}
 
 			<h5>{t("ui.players")}</h5>
@@ -313,11 +356,9 @@ const InGame = ({ gameState, socket, isRocketcrab }) => {
 
 			<div className="u-cf"></div>
 
-			{isRoundActive && locationList.length > 0 && (
+			{isRoundToolsVisible && locationList.length > 0 && (
 				<>
-					<h5>
-						{isCustomRound ? "Word Reference" : t("ui.location reference")}
-					</h5>
+					<h5>{isCustomRound ? "Word Reference" : t("ui.location reference")}</h5>
 					<LocationReferenceList
 						locationList={locationList}
 						isCustomRound={isCustomRound}
@@ -367,6 +408,7 @@ const RolePanel = ({
 	isSpy,
 	isObserver,
 	isSpyOfferPhase,
+	isTimeoutGuessPhase,
 	spyOffer,
 	socket,
 	t,
@@ -395,6 +437,7 @@ const RolePanel = ({
 	}
 
 	if (isSpy) {
+		const showGuessControls = me.guessesRemaining > 0 && !me.timeoutGuessDone;
 		return (
 			<>
 				<div className="player-status player-status-spy">
@@ -407,7 +450,13 @@ const RolePanel = ({
 					Tap words below to cross them out. Use guess mode only when you want
 					to submit a real guess.
 				</div>
-				{me.guessesRemaining > 0 && (
+				{me.timeoutGuessDone && isTimeoutGuessPhase && (
+					<div className="settings-help">You marked yourself done guessing.</div>
+				)}
+				{!showGuessControls && isTimeoutGuessPhase && (
+					<div className="settings-help">No guesses left. Waiting for reveal.</div>
+				)}
+				{showGuessControls && (
 					<div style={{ marginTop: "0.75em" }}>
 						{!spyGuessMode ? (
 							<button className="btn-small" onClick={onStartSpyGuess}>
@@ -433,6 +482,14 @@ const RolePanel = ({
 									Cancel
 								</button>
 							</>
+						)}
+						{isTimeoutGuessPhase && (
+							<button
+								className="btn-small"
+								onClick={() => socket.emit("completeTimeoutGuessing")}
+							>
+								Done guessing
+							</button>
 						)}
 					</div>
 				)}
@@ -509,24 +566,20 @@ const SpyOfferStatus = ({ spyOffer, isSpy, socket }) => {
 
 const QuestionHelper = ({
 	activeQuestion,
-	questionHistory,
 	players,
 	me,
 	socket,
 	questionTurn,
 	activeAccusationVote,
-	accusationPhase,
 }) => {
 	const [targetName, setTargetName] = useState("");
 	const [optionOne, setOptionOne] = useState("");
 	const [optionTwo, setOptionTwo] = useState("");
-	const [questionTimeLeft, setQuestionTimeLeft] = useState(null);
 
 	const canAsk = Boolean(
 		me.name && !me.isObserver && me.revealedSpyStatus !== "spy",
 	);
 	const isSuggestedAsker = questionTurn?.suggestedAskerName === me.name;
-	const canAnswer = activeQuestion?.targetName === me.name;
 	const connectedTargets = players.filter(
 		(player) =>
 			player.name &&
@@ -535,25 +588,6 @@ const QuestionHelper = ({
 			player.revealedSpyStatus !== "spy" &&
 			player.name !== me.name,
 	);
-
-	useEffect(() => {
-		if (!activeQuestion) {
-			setQuestionTimeLeft(null);
-			return;
-		}
-		const update = () => {
-			if (!activeQuestion.expiresAt) {
-				setQuestionTimeLeft(null);
-				return;
-			}
-			setQuestionTimeLeft(
-				Math.max(0, Math.ceil((activeQuestion.expiresAt - Date.now()) / 1000)),
-			);
-		};
-		update();
-		const interval = setInterval(update, 500);
-		return () => clearInterval(interval);
-	}, [activeQuestion]);
 
 	useEffect(() => {
 		if (!activeQuestion && isSuggestedAsker) {
@@ -578,114 +612,143 @@ const QuestionHelper = ({
 			initialHidden={!isSuggestedAsker}
 		>
 			<div className="status-container-content question-helper">
-				{!activeQuestion &&
-					!activeAccusationVote &&
-					!accusationPhase &&
-					canAsk && (
-						<>
-							<div className="settings-help">
-								Ask two choices and let the target pick one. Anyone can ask
-								manually, but the suggested asker is highlighted above.
-							</div>
-							<label htmlFor="question-target">Ask this player:</label>
-							<select
-								id="question-target"
-								className="u-full-width"
-								value={targetName}
-								onChange={({ target: { value } }) => setTargetName(value)}
-							>
-								<option value="">Choose a player</option>
-								{connectedTargets.map((player) => (
-									<option key={player.name} value={player.name}>
-										{player.name}
-									</option>
-								))}
-							</select>
-							<input
-								type="text"
-								placeholder="Question option 1"
-								className="u-full-width"
-								value={optionOne}
-								onChange={({ target: { value } }) => setOptionOne(value)}
-								maxLength={160}
-							/>
-							<input
-								type="text"
-								placeholder="Question option 2"
-								className="u-full-width"
-								value={optionTwo}
-								onChange={({ target: { value } }) => setOptionTwo(value)}
-								maxLength={160}
-							/>
-							<button
-								className="btn-small"
-								disabled={!targetName || !optionOne.trim() || !optionTwo.trim()}
-								onClick={submitPrompt}
-							>
-								Send options
-							</button>
-						</>
-					)}
-
-				{activeQuestion && (
-					<div className="question-active-card">
-						<div>
-							<strong>{activeQuestion.askerName}</strong> is asking{" "}
-							<strong>{activeQuestion.targetName}</strong>.
+				{!activeQuestion && !activeAccusationVote && canAsk ? (
+					<>
+						<div className="settings-help">
+							Ask two choices and let the target pick one. Anyone can ask
+							manually, but the suggested asker is highlighted above.
 						</div>
-						{questionTimeLeft !== null && (
-							<div className="settings-help">
-								Response timer: {questionTimeLeft}s
-							</div>
-						)}
-						<ol>
-							{activeQuestion.options.map((option, index) => (
-								<li key={option}>
-									{option}{" "}
-									{canAnswer && (
-										<button
-											className="btn-small"
-											onClick={() => socket.emit("chooseQuestionOption", index)}
-										>
-											Choose
-										</button>
-									)}
-								</li>
+						<label htmlFor="question-target">Ask this player:</label>
+						<select
+							id="question-target"
+							className="u-full-width"
+							value={targetName}
+							onChange={({ target: { value } }) => setTargetName(value)}
+						>
+							<option value="">Choose a player</option>
+							{connectedTargets.map((player) => (
+								<option key={player.name} value={player.name}>
+									{player.name}
+								</option>
 							))}
-						</ol>
+						</select>
+						<input
+							type="text"
+							placeholder="Question option 1"
+							className="u-full-width"
+							value={optionOne}
+							onChange={({ target: { value } }) => setOptionOne(value)}
+							maxLength={160}
+						/>
+						<input
+							type="text"
+							placeholder="Question option 2"
+							className="u-full-width"
+							value={optionTwo}
+							onChange={({ target: { value } }) => setOptionTwo(value)}
+							maxLength={160}
+						/>
+						<button
+							className="btn-small"
+							disabled={!targetName || !optionOne.trim() || !optionTwo.trim()}
+							onClick={submitPrompt}
+						>
+							Send options
+						</button>
+					</>
+				) : (
+					<div className="settings-help">
+						{activeQuestion || activeAccusationVote
+							? "Finish the current interaction before asking a new question."
+							: "You cannot ask a question right now."}
 					</div>
 				)}
-
-				<div style={{ marginTop: "1em" }}>
-					<h5>Question History</h5>
-					{questionHistory.length === 0 && (
-						<div className="settings-help">No questions logged yet.</div>
-					)}
-					{questionHistory.length > 0 && (
-						<ol className="question-history-list">
-							{questionHistory.map((entry, index) => (
-								<li key={`${entry.askerName}-${entry.targetName}-${index}`}>
-									<div>
-										<strong>
-											{entry.askerName} → {entry.targetName}
-										</strong>
-									</div>
-									<div>
-										Options: 1) {entry.options[0]} 2) {entry.options[1]}
-									</div>
-									<div>
-										Result:{" "}
-										{entry.outcome === "timeout"
-											? "unanswered in time"
-											: entry.recordedChoiceText}
-									</div>
-								</li>
-							))}
-						</ol>
-					)}
-				</div>
 			</div>
 		</HideableContainer>
+	);
+};
+
+const QuestionStatus = ({ activeQuestion, questionHistory, me, socket }) => {
+	const [questionTimeLeft, setQuestionTimeLeft] = useState(null);
+	const canAnswer = activeQuestion?.targetName === me.name;
+
+	useEffect(() => {
+		if (!activeQuestion) {
+			setQuestionTimeLeft(null);
+			return;
+		}
+		const update = () => {
+			if (!activeQuestion.expiresAt) {
+				setQuestionTimeLeft(null);
+				return;
+			}
+			setQuestionTimeLeft(
+				Math.max(0, Math.ceil((activeQuestion.expiresAt - Date.now()) / 1000)),
+			);
+		};
+		update();
+		const interval = setInterval(update, 500);
+		return () => clearInterval(interval);
+	}, [activeQuestion]);
+
+	return (
+		<div style={{ marginBottom: "1em" }}>
+			<h5>Current Question</h5>
+			{activeQuestion ? (
+				<div className="question-active-card">
+					<div>
+						<strong>{activeQuestion.askerName}</strong> is asking <strong>{activeQuestion.targetName}</strong>.
+					</div>
+					{questionTimeLeft !== null && (
+						<div className="settings-help">Response timer: {questionTimeLeft}s</div>
+					)}
+					<ol>
+						{activeQuestion.options.map((option, index) => (
+							<li key={`${option}-${index}`}>
+								{option}{" "}
+								{canAnswer && (
+									<button
+										className="btn-small"
+										onClick={() => socket.emit("chooseQuestionOption", index)}
+									>
+										Choose
+									</button>
+								)}
+							</li>
+						))}
+					</ol>
+				</div>
+			) : (
+				<div className="settings-help">No active question right now.</div>
+			)}
+
+			<div style={{ marginTop: "1em" }}>
+				<h5>Question History</h5>
+				{questionHistory.length === 0 && (
+					<div className="settings-help">No questions logged yet.</div>
+				)}
+				{questionHistory.length > 0 && (
+					<ol className="question-history-list">
+						{questionHistory.map((entry, index) => (
+							<li key={`${entry.askerName}-${entry.targetName}-${index}`}>
+								<div>
+									<strong>
+										{entry.askerName} → {entry.targetName}
+									</strong>
+								</div>
+								<div>Options: 1) {entry.options[0]} 2) {entry.options[1]}</div>
+								<div>
+									Result:{" "}
+									{entry.outcome === "timeout"
+										? "unanswered in time"
+										: entry.recordedChoiceText}
+								</div>
+							</li>
+						))}
+					</ol>
+				)}
+			</div>
+		</div>
 	);
 };
 
@@ -693,11 +756,10 @@ const AccusationPanel = ({
 	players,
 	me,
 	socket,
-	accusationPhase,
 	activeAccusationVote,
 	accusationLog,
+	isRoundActive,
 }) => {
-	const [targetName, setTargetName] = useState("");
 	const [starterTargetName, setStarterTargetName] = useState("");
 
 	const accusationTargets = useMemo(
@@ -717,36 +779,32 @@ const AccusationPanel = ({
 		if (!starterTargetName && accusationTargets[0]) {
 			setStarterTargetName(accusationTargets[0].name);
 		}
-		if (!targetName && accusationTargets[0]) {
-			setTargetName(accusationTargets[0].name);
-		}
-	}, [accusationTargets, starterTargetName, targetName]);
+	}, [accusationTargets, starterTargetName]);
 
 	const canInitiate = Boolean(
-		me.name && !me.isObserver && me.revealedSpyStatus !== "spy",
+		isRoundActive &&
+			me.name &&
+			!me.isObserver &&
+			me.revealedSpyStatus !== "spy" &&
+			me.accusationsRemaining > 0,
 	);
-	const myTurn = accusationPhase?.currentTurnName === me.name;
-	const myTurnIsCounter = accusationPhase?.currentTurnKind === "counter";
 
 	return (
 		<HideableContainer title={"Accusations"} initialHidden={false}>
 			<div className="status-container-content question-helper">
 				<div className="settings-help">
-					Your remaining accusations are public. Revealed non-spies can still
-					vote; revealed spies cannot.
+					Each player can start one accusation total per round. Voting does not
+					spend your accusation.
 				</div>
 
 				{activeAccusationVote && (
 					<div className="question-active-card">
 						<div>
 							<strong>{activeAccusationVote.initiatedByName}</strong> started a
-							vote on <strong>{activeAccusationVote.targetName}</strong>
-							{activeAccusationVote.isCounter && " (counter-accusation)"}.
+							vote on <strong>{activeAccusationVote.targetName}</strong>.
 						</div>
 						<div className="settings-help">
-							Yes: {activeAccusationVote.yesVotes} · No:{" "}
-							{activeAccusationVote.noVotes} · Pending:{" "}
-							{activeAccusationVote.pendingVotes}
+							Yes: {activeAccusationVote.yesVotes} · No: {activeAccusationVote.noVotes} · Pending: {activeAccusationVote.pendingVotes}
 						</div>
 						{activeAccusationVote.eligibleToVote &&
 							activeAccusationVote.myVote === null && (
@@ -774,112 +832,52 @@ const AccusationPanel = ({
 					</div>
 				)}
 
-				{!activeAccusationVote && accusationPhase?.currentTurnName && (
-					<div className="question-active-card">
-						<div>
-							Current accusation turn:{" "}
-							<strong>{accusationPhase.currentTurnName}</strong>
-							{accusationPhase.currentTurnKind === "counter" &&
-								" (counter-accusation)"}
+				{!activeAccusationVote && canInitiate && (
+					<div style={{ marginBottom: "1em" }}>
+						<div className="settings-help">
+							Start a player accusation or call a terminal accusation.
 						</div>
-						{myTurn ? (
-							<>
-								<select
-									className="u-full-width"
-									value={targetName}
-									onChange={({ target: { value } }) => setTargetName(value)}
-								>
-									<option value="">Choose a player</option>
-									{accusationTargets.map((player) => (
-										<option key={player.name} value={player.name}>
-											{player.name}
-										</option>
-									))}
-								</select>
-								<button
-									className="btn-small"
-									disabled={!targetName}
-									onClick={() =>
-										socket.emit("submitPlayerAccusation", targetName)
-									}
-								>
-									{myTurnIsCounter ? "Counter-accuse" : "Accuse"}
-								</button>
-								<button
-									className="btn-small"
-									onClick={() => socket.emit("passAccusationTurn")}
-								>
-									Pass
-								</button>
-							</>
-						) : (
-							<div className="settings-help">
-								Waiting for {accusationPhase.currentTurnName} to accuse or pass.
-							</div>
-						)}
+						<select
+							className="u-full-width"
+							value={starterTargetName}
+							onChange={({ target: { value } }) => setStarterTargetName(value)}
+						>
+							<option value="">Choose a player</option>
+							{accusationTargets.map((player) => (
+								<option key={player.name} value={player.name}>
+									{player.name}
+								</option>
+							))}
+						</select>
+						<button
+							className="btn-small"
+							disabled={!starterTargetName}
+							onClick={() => socket.emit("startPlayerAccusation", starterTargetName)}
+						>
+							Start accusation
+						</button>
+						<button
+							className="btn-small"
+							onClick={() => socket.emit("startTerminalAccusation", "no-spy")}
+						>
+							No Spy
+						</button>
+						<button
+							className="btn-small"
+							onClick={() =>
+								socket.emit("startTerminalAccusation", "everyone-remaining-spy")
+							}
+						>
+							Everyone Remaining is a Spy
+						</button>
 					</div>
 				)}
 
-				{!activeAccusationVote &&
-					!accusationPhase?.currentTurnName &&
-					canInitiate && (
-						<div style={{ marginBottom: "1em" }}>
-							<div className="settings-help">
-								Start a voted accusation or call a terminal accusation.
-							</div>
-							<select
-								className="u-full-width"
-								value={starterTargetName}
-								onChange={({ target: { value } }) =>
-									setStarterTargetName(value)
-								}
-							>
-								<option value="">Choose a player</option>
-								{accusationTargets.map((player) => (
-									<option key={player.name} value={player.name}>
-										{player.name}
-									</option>
-								))}
-							</select>
-							<button
-								className="btn-small"
-								disabled={!starterTargetName}
-								onClick={() =>
-									socket.emit("startPlayerAccusation", starterTargetName)
-								}
-							>
-								Start accusation
-							</button>
-							<button
-								className="btn-small"
-								onClick={() => socket.emit("startTerminalAccusation", "no-spy")}
-							>
-								No Spy
-							</button>
-							<button
-								className="btn-small"
-								onClick={() =>
-									socket.emit(
-										"startTerminalAccusation",
-										"everyone-remaining-spy",
-									)
-								}
-							>
-								Everyone Remaining is a Spy
-							</button>
-						</div>
-					)}
-
-				{accusationPhase?.scoreEntries?.length > 0 && (
-					<div>
-						<h5>Accusation Scoreboard</h5>
-						<ul>
-							{accusationPhase.scoreEntries.map((entry) => (
-								<li key={entry.targetAuthToken}>
-									{entry.targetName}: {entry.yesVotes} yes votes
-								</li>
-							))}
-						</ul>
+				{!activeAccusationVote && !canInitiate && isRoundActive && (
+					<div className="settings-help">
+						{me.accusationsRemaining > 0
+							? "You cannot start an accusation right now."
+							: "You have already used your accusation this round."}
 					</div>
 				)}
 
