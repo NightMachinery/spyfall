@@ -13,6 +13,7 @@ NODE_VERSION="20"
 CADDY_BEGIN="# BEGIN spyfall self-host"
 CADDY_END="# END spyfall self-host"
 PROXY_EXPORTS='export ALL_PROXY=http://127.0.0.1:2097 all_proxy=http://127.0.0.1:2097 http_proxy=http://127.0.0.1:2097 https_proxy=http://127.0.0.1:2097 HTTP_PROXY=http://127.0.0.1:2097 HTTPS_PROXY=http://127.0.0.1:2097 npm_config_proxy=http://127.0.0.1:2097 npm_config_https_proxy=http://127.0.0.1:2097'
+ORIGINAL_SPYFALL_PRODUCTION_P="${SPYFALL_PRODUCTION_P-__SPYFALL_UNSET__}"
 
 tmuxnew () {
 	tmux kill-session -t "$1" &> /dev/null || true
@@ -29,6 +30,7 @@ Usage:
 
 Notes:
   - The default URL is spy.pinky.lilf.ir.
+  - Production mode is enabled by default; use SPYFALL_PRODUCTION_P=n to keep the dev server flow.
   - Override the backend port with SPYFALL_PORT=3301 ./self_host.zsh setup ...
   - For pure intranet HTTP, pass a scheme too, e.g. http://spy.lan
 EOF
@@ -45,6 +47,39 @@ caddy_site_label() {
 	else
 		print -- "http://$SPYFALL_HOST"
 	fi
+}
+
+load_runtime_mode() {
+	local raw_mode
+	local normalized_mode
+
+	if [[ "$ORIGINAL_SPYFALL_PRODUCTION_P" == "__SPYFALL_UNSET__" ]]; then
+		raw_mode=""
+	else
+		raw_mode="$ORIGINAL_SPYFALL_PRODUCTION_P"
+	fi
+
+	if [[ -z "$raw_mode" ]]; then
+		export SPYFALL_PRODUCTION_P="y"
+		return
+	fi
+
+	normalized_mode="${raw_mode:l}"
+	case "$normalized_mode" in
+		y|yes|true|1|on)
+			export SPYFALL_PRODUCTION_P="y"
+			;;
+		n|no|false|0|off)
+			export SPYFALL_PRODUCTION_P="n"
+			;;
+		*)
+			die "Invalid SPYFALL_PRODUCTION_P=$raw_mode (use y/n, true/false, or 1/0)."
+			;;
+	esac
+}
+
+is_production_mode() {
+	[[ "$SPYFALL_PRODUCTION_P" == "y" ]]
 }
 
 load_saved_config() {
@@ -85,6 +120,20 @@ run_node_task() {
 	local task="$1"
 	local quoted_root=${(q)ROOT_DIR}
 	zsh -ic "set -e; $PROXY_EXPORTS; nvm-load; nvm use ${NODE_VERSION} >/dev/null; cd ${quoted_root}; ${task}"
+}
+
+self_host_runtime_exports() {
+	local exports='export SPYFALL_FORCE_WASM=1;'
+
+	if [[ -z "${NEXT_PUBLIC_ENABLE_EXTERNAL_HELP+x}" ]]; then
+		exports+=' export NEXT_PUBLIC_ENABLE_EXTERNAL_HELP=0;'
+	fi
+
+	if [[ -z "${NEXT_PUBLIC_GA_MEASUREMENT_ID+x}" ]]; then
+		exports+=' unset NEXT_PUBLIC_GA_MEASUREMENT_ID;'
+	fi
+
+	print -- "$exports"
 }
 
 lock_hash() {
@@ -147,6 +196,26 @@ swc_index.write_text(text)
 PY
 }
 
+production_build_exists() {
+	[[ -f "$ROOT_DIR/.next/BUILD_ID" ]]
+}
+
+build_production_app() {
+	local env_exports
+	env_exports=$(self_host_runtime_exports)
+	print -- "Building Spyfall for production..."
+	run_node_task "${env_exports} export NODE_ENV=production; npm run build"
+}
+
+ensure_production_build() {
+	if production_build_exists; then
+		return
+	fi
+
+	print -- "Production build is missing; creating it now..."
+	build_production_app
+}
+
 port_in_use() {
 	local port="$1"
 	ss -ltn | awk '{print $4}' | grep -Eq "(^|:)$port\$"
@@ -186,7 +255,7 @@ $CADDY_END
 EOF
 
 	mv "$tmp_file" "$CADDYFILE"
-	if ! caddy validate --config "$CADDYFILE" >/dev/null; then
+	if ! caddy validate --config "$CADDYFILE" --adapter caddyfile >/dev/null; then
 		if [[ -f "${CADDYFILE}.spyfall.bak" ]]; then
 			mv "${CADDYFILE}.spyfall.bak" "$CADDYFILE"
 		fi
@@ -195,9 +264,9 @@ EOF
 
 	if pgrep -x caddy >/dev/null 2>&1; then
 		print -- "Reloading Caddy..."
-		caddy reload --config "$CADDYFILE"
+		caddy reload --config "$CADDYFILE" --adapter caddyfile
 	else
-		print -- "Caddy is not running; start it manually with: caddy run --config $CADDYFILE"
+		print -- "Caddy is not running; start it manually with: caddy run --config $CADDYFILE --adapter caddyfile"
 	fi
 }
 
@@ -216,7 +285,17 @@ start_app() {
 	fi
 
 	local quoted_root=${(q)ROOT_DIR}
-	local start_cmd="nvm-load; nvm use ${NODE_VERSION} >/dev/null; cd ${quoted_root}; export PORT=${SPYFALL_PORT} NODE_ENV=development NEXT_PUBLIC_ENABLE_EXTERNAL_HELP=0 SPYFALL_FORCE_WASM=1; unset NEXT_PUBLIC_GA_MEASUREMENT_ID; exec node server.js"
+	local env_exports
+	local start_cmd
+	env_exports=$(self_host_runtime_exports)
+
+	if is_production_mode; then
+		ensure_production_build
+		start_cmd="nvm-load; nvm use ${NODE_VERSION} >/dev/null; cd ${quoted_root}; ${env_exports} export PORT=${SPYFALL_PORT} NODE_ENV=production; exec node server.js"
+	else
+		start_cmd="nvm-load; nvm use ${NODE_VERSION} >/dev/null; cd ${quoted_root}; ${env_exports} export PORT=${SPYFALL_PORT} NODE_ENV=development; exec node server.js"
+	fi
+
 	local tmux_cmd="zsh -ic ${(q)start_cmd}"
 
 	tmuxnew "$SPYFALL_SESSION" "$tmux_cmd"
@@ -226,7 +305,11 @@ start_app() {
 	for attempt in {1..120}; do
 		if port_in_use "$SPYFALL_PORT"; then
 			print -- "Spyfall is live at $(caddy_site_label) -> 127.0.0.1:$SPYFALL_PORT"
-			print -- "The first browser request can take a bit while Next compiles in dev mode."
+			if is_production_mode; then
+				print -- "Running in production mode (override with SPYFALL_PRODUCTION_P=n for dev mode)."
+			else
+				print -- "Running in development mode; the first browser request can take a bit while Next compiles."
+			fi
 			print -- "Logs: tmux attach -t $SPYFALL_SESSION"
 			return
 		fi
@@ -249,12 +332,16 @@ setup_or_redeploy() {
 	update_caddyfile
 	install_dependencies_if_needed
 	ensure_swc_wasm_workaround
+	if is_production_mode; then
+		build_production_app
+	fi
 	start_app
 }
 
 main() {
 	local command="${1-}"
 	load_saved_config
+	load_runtime_mode
 	require_commands
 	require_node_toolchain
 
