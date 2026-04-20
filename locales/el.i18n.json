@@ -24,7 +24,7 @@
 		"enter an access code": "Κώδικας",
 		"invalid access code": "Απολογούμαστε, δεν υπάρχει παχνίδι με τον κώδικα που έχετε δώσει",
 		"join": "Σύνδεση",
-		"footer": "Το <a href='http://international.hobbyworld.ru/catalog/25-spyfall/' target='_blank'>Spyfall</a> σχεδιάστηκε από τον Alexandr Ushan, και εκδίδεται από την εταιρία <a href='http://international.hobbyworld.ru/' target='_blank'>Hobby World</a>"
+		"footer": "Open source Spyfall"
 	},
 	"locations": {
 		"airplane": "Αεροπλάνο",

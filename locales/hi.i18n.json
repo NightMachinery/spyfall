@@ -24,7 +24,7 @@
 		"enter an access code": "प्रवेश कोड भरिये",
 		"invalid access code": "माफ़ करें, जो प्रवेश कोड आपने दिया उसका कोई खेल नहीं मिला!",
 		"join": "शामिल होएँ",
-		"footer": "<a href='http://international.hobbyworld.ru/catalog/25-spyfall/' target='_blank'>Spyfall</a>ऐलेक्सान्द्र उशान द्वारा अभिकल्प किया गया, <a href='http://international.hobbyworld.ru/' target='_blank'>हौबी वर्ल्ड</a> द्वारा प्रकाशित किया गया"
+		"footer": "Open source Spyfall"
 	},
 	"locations": {
 		"airplane": "हवाईजहाह",

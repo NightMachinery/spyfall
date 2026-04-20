@@ -1,21 +1,12 @@
 import React from "react";
 
+const REPO_URL = "https://github.com/NightMachinery/spyfall";
+
 const Footer = () => (
 	<div className="footer">
-		Spyfall by{" "}
-		<a
-			href="https://www.tannerkrewson.com/"
-			target="_blank"
-			rel="noopener noreferrer"
-		>
-			Tanner Krewson
-		</a>
+		Open source Spyfall
 		<br />
-		<a
-			href="https://github.com/tannerkrewson/spyfall"
-			target="_blank"
-			rel="noopener noreferrer"
-		>
+		<a href={REPO_URL} target="_blank" rel="noopener noreferrer">
 			View on GitHub
 		</a>
 	</div>

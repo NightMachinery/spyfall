@@ -24,7 +24,7 @@
 		"enter an access code": "প্রবেশাধিকার সংকেত দিন",
 		"invalid access code": "দুঃখিত, আপনার প্রবেশকৃত গোপন সংকেত দিয়ে কোন খেলা পাওয়া যায়নি!",
 		"join": "যোগ দিন",
-		"footer": "<a href='http://international.hobbyworld.ru/catalog/25-spyfall/' target='_blank'>Spyfall</a> মূল নকশা করেছেন Alexandr Ushan, প্রকাশ করেছে <a href='http://international.hobbyworld.ru/' target='_blank'>Hobby World</a>"
+		"footer": "Open source Spyfall"
 	},
 	"locations": {
 		"airplane": "উড়োজাহাজ",

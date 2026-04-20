@@ -295,11 +295,12 @@ const QuestionSettings = ({ settings, disabled, onUpdateSettings }) => (
 					onChange={({ target: { value } }) =>
 						onUpdateSettings({ questionResponseSeconds: Number(value) })
 					}
+					step="1"
 				/>
 			</div>
 		</div>
 		<div className="settings-help">
-			0 disables the per-question response timer.
+			0 disables the per-question response timer. Any nonzero value is rounded up to at least 15 seconds.
 		</div>
 	</div>
 );

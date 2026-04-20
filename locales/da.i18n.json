@@ -24,7 +24,7 @@
 		"enter an access code": "Indtast en adgangskode",
 		"invalid access code": "Der blev desværre ikke fundet et spil med den supplerede adgangskode!",
 		"join": "Tilslut ",
-		"footer": "<a href='http://international.hobbyworld.ru/catalog/25-spyfall/' target='_blank'> Spyfall</a> designet af Alexandr Ushan, udgivet af <a href='http://international.hobbyworld.ru/' target='_blank'> Hobby World</a>"
+		"footer": "Open source Spyfall"
 	},
 	"locations": {
 		"airplane": "Flyvemaskine ",

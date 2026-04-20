@@ -24,7 +24,7 @@
 		"enter an access code": "Vnesi dostopno kodo",
 		"invalid access code": "Žal, igra z določeno dostopno kodo ni bila najdena!",
 		"join": "Pridruži se",
-		"footer": "<a href='http://international.hobbyworld.ru/catalog/25-spyfall/' target='_blank'>Spyfall</a> zasnoval Alexandr Ushan, založil <a href='http://international.hobbyworld.ru/' target='_blank'>Hobby World</a>"
+		"footer": "Open source Spyfall"
 	},
 	"locations": {
 		"airplane": "Letalo",

@@ -24,7 +24,7 @@
 		"enter an access code": "Upiši pristupnu šifru",
 		"invalid access code": "Žao nam je, ne postoji igra s pristupnom šifrom koju ste upisali!",
 		"join": "Pridruži se",
-		"footer": "<a href='http://international.hobbyworld.ru/catalog/25-spyfall/' target='_blank'>Spyfall</a> je napravio Alexandr Ushan, a objavio <a href='http://international.hobbyworld.ru/' target='_blank'>Hobby World</a>"
+		"footer": "Open source Spyfall"
 	},
 	"locations": {
 		"airplane": "Avion",

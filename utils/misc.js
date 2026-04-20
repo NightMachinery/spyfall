@@ -1,17 +1,18 @@
+const REPO_ACTIONS_URL = "https://github.com/NightMachinery/spyfall/actions";
+
 export const lockedMessage = (minutes) => ({
 	icon: "error",
-	title: "Oopsie woopsie",
+	title: "Server temporarily locked",
 	text:
-		"The Spyfall server is pending an update, and will be restarted " +
+		"This Spyfall server is preparing for an update and new rooms are unavailable " +
 		getTimeLeft(minutes) +
-		". Try again then!",
+		".",
 	footer:
-		"If you're the techy type, check the update status " +
-		'<a href="https://github.com/tannerkrewson/spyfall/actions" ' +
-		'target="_blank" rel="noopener noreferrer">here</a>.',
+		"If you want to check deployment status, see " +
+		`<a href="${REPO_ACTIONS_URL}" target="_blank" rel="noopener noreferrer">the repo actions page</a>.`,
 });
 
 const getTimeLeft = (minutes) => {
-	if (minutes <= 0) return "momentarily";
-	return "in " + minutes + " minute" + (parseInt(minutes) !== 1 ? "s" : "");
+	if (minutes <= 0) return "right now";
+	return "for about " + minutes + " minute" + (parseInt(minutes) !== 1 ? "s" : "");
 };

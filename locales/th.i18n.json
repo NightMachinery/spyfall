@@ -24,7 +24,7 @@
 		"enter an access code": "ใส่รหัส",
 		"invalid access code": "ขออภัย ไม่ค้นพบห้องที่คุณหา",
 		"join": "เข้าร่วม",
-		"footer": "<a href='http://international.hobbyworld.ru/catalog/25-spyfall/' target='_blank'>Spyfall</a> designed by Alexandr Ushan, published by <a href='http://international.hobbyworld.ru/' target='_blank'>Hobby World</a>"
+		"footer": "Open source Spyfall"
 	},
 	"locations": {
 		"airplane": "เครื่องบิน",

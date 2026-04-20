@@ -24,7 +24,7 @@
 		"enter an access code": "Skriv inn spillkode",
 		"invalid access code": "Beklager, ingen spill ble funnet med spillkoden du oppga!",
 		"join": "Bli med",
-		"footer": "<a href='http://international.hobbyworld.ru/catalog/25-spyfall/' target='_blank'>Spyfall</a> laget av Alexandr Ushan, utgitt av <a href='http://international.hobbyworld.ru/' target='_blank'>Hobby World</a>"
+		"footer": "Open source Spyfall"
 	},
 	"locations": {
 		"airplane": "Passasjerfly",

@@ -24,7 +24,7 @@
 		"enter an access code": "Introdu un cod de acces",
 		"invalid access code": "Ne pare rău, nu a fost găsit nici un joc cu codul de acces introdus!",
 		"join": "Intră",
-		"footer": "<a href='http://international.hobbyworld.ru/catalog/25-spyfall/' target='_blank'>Spyfall</a> creat de Alexandr Ushan, publicat de <a href='http://international.hobbyworld.ru/' target='_blank'>Hobby World</a>"
+		"footer": "Open source Spyfall"
 	},
 	"locations": {
 		"airplane": "Avion",

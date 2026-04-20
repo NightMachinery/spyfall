@@ -24,7 +24,7 @@
 		"enter an access code": "Syötä liittymiskoodi",
 		"invalid access code": "Pahoittelen, peliä ei löytynyt antamallasi liittymiskoodilla!",
 		"join": "Liity",
-		"footer": "<a href='http://international.hobbyworld.ru/catalog/25-spyfall/' target='_blank'>Spyfall</a>, suunnittelu Alexandr Ushan, julkaisija <a href='http://international.hobbyworld.ru/' target='_blank'>Hobby World</a>"
+		"footer": "Open source Spyfall"
 	},
 	"locations": {
 		"airplane": "Lentokone",

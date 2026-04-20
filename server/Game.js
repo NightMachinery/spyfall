@@ -6,6 +6,9 @@ const MAX_CUSTOM_WORDS_TEXT_LENGTH = 20000;
 const MAX_QUESTION_LENGTH = 160;
 const MAX_GUESS_LENGTH = 120;
 const ALL_SPY_CHANCE = 0.02;
+const MIN_QUESTION_RESPONSE_SECONDS = 15;
+const ZERO_SPY_DELAY_MIN_SECONDS = 5;
+const ZERO_SPY_DELAY_MAX_SECONDS = 25;
 
 class Game {
 	constructor(code, onEmpty, getMinutesUntilRestart) {
@@ -39,6 +42,7 @@ class Game {
 		this.pendingRoundOutcome = null;
 		this.timer = null;
 		this.questionTimeout = null;
+		this.preRoundDelayTimeout = null;
 		this.settings = {
 			locationPack: "spyfall1",
 			timeLimit: 8,
@@ -252,8 +256,8 @@ class Game {
 		} else if (this.status !== "ingame") {
 			this.normalizeSettings();
 			this.checkIfReady();
-		} else if (this.roundPhase === "timeout-guess") {
-			this.maybeFinalizeTimeoutGuessPhase();
+		} else if (this.isSpyGuessPhase()) {
+			this.maybeFinalizeGuessPhase();
 		} else if (this.accusationPhase || this.activeAccusationVote) {
 			this.reconcileAccusationState();
 		}
@@ -276,7 +280,7 @@ class Game {
 			} else {
 				this.normalizeSettings();
 				this.checkIfReady();
-				this.maybeFinalizeTimeoutGuessPhase();
+				this.maybeFinalizeGuessPhase();
 				this.reconcileAccusationState();
 			}
 			this.refreshSuggestedQuestionTurn();
@@ -289,6 +293,7 @@ class Game {
 		if (this.noPlayersLeft() && this.code !== "ffff") {
 			this.clearTimer();
 			this.clearQuestionTimeout();
+			this.clearPreRoundDelay();
 			this.disconnectAllPlayers();
 			this.onEmpty();
 		}
@@ -543,6 +548,7 @@ class Game {
 
 		this.clearTimer();
 		this.clearQuestionTimeout();
+		this.clearPreRoundDelay();
 		this.roundPhase = "idle";
 		this.resetSpyOfferState();
 		this.resetAccusationState();
@@ -585,11 +591,41 @@ class Game {
 		if (this.roundMode !== "custom") {
 			this.assignRoles(roundPlayers);
 		}
+		if (spyCount === 0) {
+			return this.startZeroSpyDelay(roundPlayers);
+		}
 		this.finishRoundAssignment(roundPlayers);
 		return true;
 	};
 
+	startZeroSpyDelay = (roundPlayers) => {
+		this.clearPreRoundDelay();
+		this.roundPhase = "zero-spy-delay";
+		const delayMs =
+			randomIntInclusive(
+				ZERO_SPY_DELAY_MIN_SECONDS,
+				ZERO_SPY_DELAY_MAX_SECONDS,
+			) * 1000;
+		this.preRoundDelayTimeout = setTimeout(() => {
+			this.preRoundDelayTimeout = null;
+			if (this.status !== "ingame" || this.roundPhase !== "zero-spy-delay") {
+				return;
+			}
+
+			const connectedRoundPlayers = this.getRoundSetupPlayers();
+			if (connectedRoundPlayers.length < 2) {
+				this.abortPendingRound("At least 2 connected players are required.");
+				return;
+			}
+
+			this.finishRoundAssignment(connectedRoundPlayers);
+			this.sendNewStateToAllPlayers();
+		}, delayMs);
+		return true;
+	};
+
 	finishRoundAssignment = (roundPlayers) => {
+		this.clearPreRoundDelay();
 		this.currentRoundSpyCount = roundPlayers.filter(
 			(player) => player.role === "spy",
 		).length;
@@ -639,6 +675,7 @@ class Game {
 		this.resetAccusationState();
 		this.clearTimer();
 		this.clearQuestionTimeout();
+		this.clearPreRoundDelay();
 
 		this.removeDisconnectedPlayers();
 		this.players.forEach((thePlayer) => {
@@ -939,6 +976,10 @@ class Game {
 		this.refreshSuggestedQuestionTurn();
 	};
 
+	isSpyGuessPhase = () =>
+		this.roundPhase === "timeout-guess" ||
+		this.roundPhase === "revealed-spy-guess";
+
 	canPlayerSubmitSpyGuess = (player) =>
 		Boolean(
 			player &&
@@ -947,29 +988,27 @@ class Game {
 				!player.manualObserver &&
 				!player.observer &&
 				player.role === "spy" &&
-				player.revealedSpyStatus !== "spy" &&
 				player.guessesRemaining > 0 &&
 				this.status === "ingame" &&
 				(this.roundPhase === "active" ||
-					(this.roundPhase === "timeout-guess" && !player.timeoutGuessDone)),
+					(this.isSpyGuessPhase() && !player.timeoutGuessDone)),
 		);
 
-	canParticipateInTimeoutGuess = (player) =>
+	canParticipateInGuessPhase = (player) =>
 		Boolean(
-			this.roundPhase === "timeout-guess" &&
+			this.isSpyGuessPhase() &&
 				player &&
 				player.connected &&
 				player.name &&
 				!player.manualObserver &&
 				!player.observer &&
-				player.role === "spy" &&
-				player.revealedSpyStatus !== "spy",
+				player.role === "spy",
 		);
 
-	getPendingTimeoutGuessers = () =>
+	getPendingGuessers = () =>
 		this.players.filter(
 			(player) =>
-				this.canParticipateInTimeoutGuess(player) &&
+				this.canParticipateInGuessPhase(player) &&
 				player.guessesRemaining > 0 &&
 				!player.timeoutGuessDone,
 		);
@@ -989,24 +1028,45 @@ class Game {
 		});
 		this.cancelInteractiveRoundState();
 		this.roundPhase = "timeout-guess";
-		if (this.getPendingTimeoutGuessers().length === 0) {
+		if (this.getPendingGuessers().length === 0) {
 			this.finishRoundWithOutcome(this.pendingRoundOutcome);
 			return;
 		}
 		this.sendNewStateToAllPlayers();
 	};
 
-	maybeFinalizeTimeoutGuessPhase = () => {
-		if (this.roundPhase !== "timeout-guess" || !this.pendingRoundOutcome) return;
-		if (this.getPendingTimeoutGuessers().length > 0) return;
+	startRevealedSpyGuessPhase = () => {
+		this.clearTimer();
+		this.timeLeft = 0;
+		this.timePaused = false;
+		this.pendingRoundOutcome = {
+			title: "Everyone wins",
+			text: "All spies have been revealed.",
+			everyoneWins: true,
+		};
+		this.players.forEach((player) => {
+			player.timeoutGuessDone = false;
+		});
+		this.cancelInteractiveRoundState();
+		this.roundPhase = "revealed-spy-guess";
+		if (this.getPendingGuessers().length === 0) {
+			this.finishRoundWithOutcome(this.pendingRoundOutcome);
+			return;
+		}
+		this.sendNewStateToAllPlayers();
+	};
+
+	maybeFinalizeGuessPhase = () => {
+		if (!this.isSpyGuessPhase() || !this.pendingRoundOutcome) return;
+		if (this.getPendingGuessers().length > 0) return;
 		this.finishRoundWithOutcome(this.pendingRoundOutcome);
 	};
 
 	completeTimeoutGuessing = (player) => {
-		if (!this.canParticipateInTimeoutGuess(player)) return;
+		if (!this.canParticipateInGuessPhase(player)) return;
 		player.timeoutGuessDone = true;
-		this.maybeFinalizeTimeoutGuessPhase();
-		if (this.roundPhase === "timeout-guess") {
+		this.maybeFinalizeGuessPhase();
+		if (this.isSpyGuessPhase()) {
 			this.sendNewStateToAllPlayers();
 		}
 	};
@@ -1016,7 +1076,7 @@ class Game {
 			this.emitUnauthorized(player.socket);
 			return;
 		}
-		if (this.roundPhase !== "timeout-guess" || !this.pendingRoundOutcome) return;
+		if (!this.isSpyGuessPhase() || !this.pendingRoundOutcome) return;
 		this.finishRoundWithOutcome(this.pendingRoundOutcome);
 	};
 
@@ -1044,6 +1104,12 @@ class Game {
 		if (!this.questionTimeout) return;
 		clearTimeout(this.questionTimeout);
 		this.questionTimeout = null;
+	};
+
+	clearPreRoundDelay = () => {
+		if (!this.preRoundDelayTimeout) return;
+		clearTimeout(this.preRoundDelayTimeout);
+		this.preRoundDelayTimeout = null;
 	};
 
 	togglePauseTimer = (player) => {
@@ -1146,10 +1212,8 @@ class Game {
 			),
 			spyGuessLimit: clamp(parseInteger(inputSettings.spyGuessLimit, 2), 0, 20),
 			accusationsPerPlayer: 1,
-			questionResponseSeconds: clamp(
-				parseInteger(inputSettings.questionResponseSeconds, 0),
-				0,
-				300,
+			questionResponseSeconds: normalizeQuestionResponseSeconds(
+				inputSettings.questionResponseSeconds,
 			),
 		};
 
@@ -1254,7 +1318,9 @@ class Game {
 		}
 
 		this.questionHistory.push({
+			askerAuthToken: question.askerAuthToken,
 			askerName: question.askerName,
+			targetAuthToken: question.targetAuthToken,
 			targetName: question.targetName,
 			options: question.options,
 			recordedChoiceIndex,
@@ -1286,30 +1352,21 @@ class Game {
 				(player) => player.authToken === afterAuthToken,
 			);
 		}
-		if (!suggestedAsker && afterAuthToken) {
-			suggestedAsker = this.getNextEligiblePlayerAfter(
-				afterAuthToken,
+		if (!suggestedAsker) {
+			suggestedAsker = pickRandomLeastUsedPlayer(
 				eligibleAskers,
+				(player) => this.getQuestionAskCount(player),
 			);
-		}
-		if (!suggestedAsker) {
-			suggestedAsker = eligibleAskers.find(
-				(player) =>
-					player.authToken === this.questionTurn.suggestedAskerAuthToken,
-			);
-		}
-		if (!suggestedAsker) {
-			suggestedAsker = eligibleAskers[0];
 		}
 
 		const eligibleTargets =
 			this.getEligibleQuestionTargetsForPlayer(suggestedAsker);
 		const suggestedTarget =
 			eligibleTargets.length > 0
-				? this.getNextEligiblePlayerAfter(
-						suggestedAsker.authToken,
+				? pickRandomLeastUsedPlayer(
 						eligibleTargets,
-					) || eligibleTargets[0]
+						(player) => this.getQuestionAnswerCount(player),
+					)
 				: null;
 
 		this.questionTurn = {
@@ -1326,15 +1383,17 @@ class Game {
 			this.canPlayerBeQuestionTarget(asker, player),
 		);
 
-	getNextEligiblePlayerAfter = (afterAuthToken, eligiblePlayers) => {
-		if (eligiblePlayers.length === 0) return null;
-		const order = eligiblePlayers.slice();
-		const currentIndex = order.findIndex(
-			(player) => player.authToken === afterAuthToken,
-		);
-		if (currentIndex === -1) return order[0];
-		return order[(currentIndex + 1) % order.length];
-	};
+	getQuestionAskCount = (player) =>
+		this.questionHistory.filter(
+			(entry) => entry.askerAuthToken === player.authToken,
+		).length;
+
+	getQuestionAnswerCount = (player) =>
+		this.questionHistory.filter(
+			(entry) =>
+				entry.targetAuthToken === player.authToken &&
+				entry.outcome === "answered",
+		).length;
 
 	canPlayerAskQuestion = (player) =>
 		Boolean(
@@ -1608,9 +1667,8 @@ class Game {
 			return;
 		}
 
-		const isTimeoutGuess = this.roundPhase === "timeout-guess";
 		player.guessesRemaining = Math.max(0, player.guessesRemaining - 1);
-		if (this.location && cleanGuess === this.location.name && !isTimeoutGuess) {
+		if (this.location && cleanGuess === this.location.name) {
 			player.revealedSpyStatus = "spy";
 			player.canBePromoted = false;
 			this.clearTimer();
@@ -1624,9 +1682,9 @@ class Game {
 			return;
 		}
 
-		if (isTimeoutGuess) {
-			this.maybeFinalizeTimeoutGuessPhase();
-			if (this.roundPhase !== "timeout-guess") return;
+		if (this.isSpyGuessPhase()) {
+			this.maybeFinalizeGuessPhase();
+			if (!this.isSpyGuessPhase()) return;
 		}
 
 		this.sendNewStateToAllPlayers();
@@ -1646,6 +1704,21 @@ class Game {
 		if (!this.settings.autoEndWhenAllSpiesRevealed) return false;
 		if (this.currentRoundSpyCount <= 0) return false;
 		if (this.countUnrevealedSpies() > 0) return false;
+		if (
+			this.players.some(
+				(player) =>
+					player.connected &&
+					player.name &&
+					!player.manualObserver &&
+					!player.observer &&
+					player.role === "spy" &&
+					player.revealedSpyStatus === "spy" &&
+					player.guessesRemaining > 0,
+			)
+		) {
+			this.startRevealedSpyGuessPhase();
+			return true;
+		}
 
 		this.finishRoundWithOutcome({
 			title: "Everyone wins",
@@ -1754,7 +1827,7 @@ class Game {
 		if (player.revealedSpyStatus !== "spy") {
 			player.role = defaultRole;
 		}
-		this.maybeFinalizeTimeoutGuessPhase();
+		this.maybeFinalizeGuessPhase();
 		this.reconcileAccusationState();
 		this.refreshSuggestedQuestionTurn(player.authToken);
 	};
@@ -1789,7 +1862,7 @@ class Game {
 
 		this.normalizeSettings();
 		this.checkIfReady();
-		this.maybeFinalizeTimeoutGuessPhase();
+		this.maybeFinalizeGuessPhase();
 		this.reconcileAccusationState();
 		this.refreshSuggestedQuestionTurn(player.authToken);
 		this.sendNewStateToAllPlayers();
@@ -1866,7 +1939,12 @@ class Game {
 
 	getVisibleLocationForPlayer = (player) => {
 		if (this.status !== "ingame") return this.location;
-		if (!this.isRoundActive() && this.roundPhase !== "timeout-guess") return null;
+		if (
+			!this.isRoundActive() &&
+			this.roundPhase !== "timeout-guess" &&
+			this.roundPhase !== "revealed-spy-guess"
+		)
+			return null;
 		if (
 			!this.location ||
 			player.role === "spy" ||
@@ -1879,7 +1957,12 @@ class Game {
 
 	getVisibleLocationListForPlayer = () => {
 		if (this.status !== "ingame") return this.locationList;
-		if (!this.isRoundActive() && this.roundPhase !== "timeout-guess") return [];
+		if (
+			!this.isRoundActive() &&
+			this.roundPhase !== "timeout-guess" &&
+			this.roundPhase !== "revealed-spy-guess"
+		)
+			return [];
 		return this.locationList;
 	};
 
@@ -1936,39 +2019,46 @@ class Game {
 		};
 	};
 
-	getStateForPlayer = (player) => ({
-		code: this.code,
-		players: this.getPlayers(),
-		status: this.status,
-		roundPhase: this.roundPhase,
-		roundMode: this.roundMode,
-		location: this.getVisibleLocationForPlayer(player),
-		locationList: this.getVisibleLocationListForPlayer(player),
-		spyOffer: this.getSpyOfferForPlayer(player),
-		timeLeft: this.timeLeft,
-		timePaused: this.timePaused,
-		settings: this.getSettingsForPlayer(player),
-		AVAILABLE_LOCATION_PACKS: Locations.AVAILABLE_LOCATION_PACKS,
-		currentRoundNum: this.currentRoundNum,
-		questionHistory: this.questionHistory,
-		accusationLog: this.accusationLog,
-		activeQuestion: this.activeQuestion
-			? {
-					id: this.activeQuestion.id,
-					askerName: this.activeQuestion.askerName,
-					targetName: this.activeQuestion.targetName,
-					options: this.activeQuestion.options,
-					expiresAt: this.activeQuestion.expiresAt,
-				}
-			: null,
-		questionTurn: this.getQuestionTurnForPlayer(),
-		accusationPhase: this.getAccusationPhaseForPlayer(),
-		activeAccusationVote: this.getActiveAccusationVoteForPlayer(player),
-		me: {
+	getStateForPlayer = (player) => {
+		const privateInfo = {
 			...player.getPrivateInfo(this.isCreator(player), this.isAdmin(player)),
 			canVote: this.canPlayerVote(player),
-		},
-	});
+		};
+		if (this.roundPhase === "zero-spy-delay") {
+			privateInfo.role = null;
+		}
+
+		return {
+			code: this.code,
+			players: this.getPlayers(),
+			status: this.status,
+			roundPhase: this.roundPhase,
+			roundMode: this.roundMode,
+			location: this.getVisibleLocationForPlayer(player),
+			locationList: this.getVisibleLocationListForPlayer(player),
+			spyOffer: this.getSpyOfferForPlayer(player),
+			timeLeft: this.timeLeft,
+			timePaused: this.timePaused,
+			settings: this.getSettingsForPlayer(player),
+			AVAILABLE_LOCATION_PACKS: Locations.AVAILABLE_LOCATION_PACKS,
+			currentRoundNum: this.currentRoundNum,
+			questionHistory: this.questionHistory,
+			accusationLog: this.accusationLog,
+			activeQuestion: this.activeQuestion
+				? {
+						id: this.activeQuestion.id,
+						askerName: this.activeQuestion.askerName,
+						targetName: this.activeQuestion.targetName,
+						options: this.activeQuestion.options,
+						expiresAt: this.activeQuestion.expiresAt,
+					}
+				: null,
+			questionTurn: this.getQuestionTurnForPlayer(),
+			accusationPhase: this.getAccusationPhaseForPlayer(),
+			activeAccusationVote: this.getActiveAccusationVoteForPlayer(player),
+			me: privateInfo,
+		};
+	};
 
 	getPlayers = () =>
 		this.players.map((player) => ({
@@ -1982,6 +2072,12 @@ const clamp = (value, min, max) => Math.min(Math.max(value, min), max);
 const parseInteger = (value, fallback) => {
 	const parsed = Number.parseInt(value, 10);
 	return Number.isFinite(parsed) ? parsed : fallback;
+};
+
+const normalizeQuestionResponseSeconds = (value) => {
+	const parsed = clamp(parseInteger(value, 0), 0, 300);
+	if (parsed === 0) return 0;
+	return Math.max(MIN_QUESTION_RESPONSE_SECONDS, parsed);
 };
 
 const randomIntInclusive = (min, max) =>
@@ -2015,16 +2111,23 @@ const shuffleArray = (array) => {
 	return array;
 };
 
-const rotatePlayersFrom = (players, startingAuthToken) => {
-	if (players.length === 0) return [];
-	const startIndex = players.findIndex(
-		(player) => player.authToken === startingAuthToken,
-	);
-	if (startIndex === -1) return players.slice();
-	return [
-		...players.slice(startIndex + 1),
-		...players.slice(0, startIndex + 1),
-	];
+const pickRandomLeastUsedPlayer = (players, getScore) => {
+	if (!players.length) return null;
+	let lowestScore = Infinity;
+	const candidates = [];
+	for (const player of players) {
+		const score = getScore(player);
+		if (score < lowestScore) {
+			lowestScore = score;
+			candidates.length = 0;
+			candidates.push(player);
+			continue;
+		}
+		if (score === lowestScore) {
+			candidates.push(player);
+		}
+	}
+	return candidates[Math.floor(Math.random() * candidates.length)] || null;
 };
 
 const getAccusationLabel = (targetType) => {

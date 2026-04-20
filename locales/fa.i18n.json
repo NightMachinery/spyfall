@@ -24,7 +24,7 @@
 		"enter an access code": "کد دسترسی را وارد کنید",
 		"invalid access code": "متاسفانه بازی با کد دسترسی داده شده یافت نشد!",
 		"join": "پیوستن",
-		"footer": "<a href='http://international.hobbyworld.ru/catalog/25-spyfall/' target='_blank'>Spyfall</a> طراحی توسط Alexandr Ushan, انتشار توسط <a href='http://international.hobbyworld.ru/' target='_blank'>Hobby World</a>"
+		"footer": "Open source Spyfall"
 	},
 	"locations": {
 		"airplane": "هواپیما",

@@ -24,7 +24,7 @@
 		"enter an access code": "Zadej přístupový kód",
 		"invalid access code": "Omlouváme se, ale pro zadaný přístupový kód nebyla nalezena žádná hra!",
 		"join": "Připojit se",
-		"footer": "<a href='http://international.hobbyworld.ru/catalog/25-spyfall/' target='_blank'>Spyfall</a> navrhl Alexandr Ushan, publikoval <a href='http://international.hobbyworld.ru/' target='_blank'>Hobby World</a>"
+		"footer": "Open source Spyfall"
 	},
 	"locations": {
 		"airplane": "Letadlo",

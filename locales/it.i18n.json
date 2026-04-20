@@ -24,7 +24,7 @@
 		"enter an access code": "Digita un codice d'accesso",
 		"invalid access code": "Errore, nessun gioco trovato con il codice che hai digitato!",
 		"join": "Unisciti",
-		"footer": "<a href='http://international.hobbyworld.ru/catalog/25-spyfall/' target='_blank'>Spyfall</a> creato da Alexandr Ushan, pubblicato da <a href='http://international.hobbyworld.ru/' target='_blank'>Hobby World</a>"
+		"footer": "Open source Spyfall"
 	},
 	"locations": {
 		"airplane": "Aereoplano",

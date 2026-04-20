@@ -24,7 +24,7 @@
 		"enter an access code": "Masukan kode akses anda",
 		"invalid access code": "Maaf, tidak ditemukan game dengan kode akses yang anda masukan",
 		"join": "Bergabung",
-		"footer": "<a href='http://international.hobbyworld.ru/catalog/25-spyfall/' target='_blank'>Spyfall</a> didesain oleh Alexandr Ushan, diterbitkan oleh <a href='http://international.hobbyworld.ru/' target='_blank'>Hobby World</a>"
+		"footer": "Open source Spyfall"
 	},
 	"locations": {
 		"airplane": "Pesawat Terbang",

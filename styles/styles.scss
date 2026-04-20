@@ -564,6 +564,13 @@ textarea.u-full-width {
 	max-width: 100%;
 }
 
+.question-helper label,
+.event-cue-group-option {
+	display: block;
+	margin-bottom: 0.5em;
+	text-align: left;
+}
+
 .question-active-card {
 	padding: 0.75em;
 	background: #f6f6f6;
@@ -581,6 +588,47 @@ textarea.u-full-width {
 .question-active-card li,
 .question-history-list li {
 	margin-bottom: 0.6em;
+}
+
+.event-cue-group-list {
+	margin-bottom: 0.75em;
+}
+
+.event-cue-description {
+	display: block;
+	font-weight: normal;
+	font-size: 0.9em;
+	color: #666;
+}
+
+.event-cue-toast-stack {
+	position: fixed;
+	top: 1rem;
+	right: 1rem;
+	z-index: 1200;
+	display: flex;
+	flex-direction: column;
+	gap: 0.5rem;
+	max-width: min(24rem, calc(100vw - 2rem));
+}
+
+.event-cue-toast {
+	background: rgba(34, 34, 34, 0.96);
+	color: #fff;
+	border-radius: 8px;
+	padding: 0.75rem 0.9rem;
+	box-shadow: 0 8px 24px rgba(0, 0, 0, 0.28);
+	text-align: left;
+}
+
+.event-cue-toast-title {
+	font-weight: 700;
+	margin-bottom: 0.15rem;
+}
+
+.event-cue-toast-detail {
+	font-size: 0.9em;
+	color: rgba(255, 255, 255, 0.9);
 }
 
 .connection-banner {

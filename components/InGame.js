@@ -8,7 +8,7 @@ import AccessCode from "./AccessCode";
 import HideableContainer from "./HideableContainer";
 import { useCurrentLocale, useI18n } from "../locales";
 
-const InGame = ({ gameState, socket, isRocketcrab }) => {
+const InGame = ({ gameState, socket }) => {
 	const {
 		me,
 		location,
@@ -25,6 +25,7 @@ const InGame = ({ gameState, socket, isRocketcrab }) => {
 		activeQuestion,
 		questionTurn,
 		activeAccusationVote,
+		currentRoundNum,
 	} = gameState;
 
 	const [timeLeft, setTimeLeft] = useState(latestServerTimeLeft);
@@ -38,14 +39,17 @@ const InGame = ({ gameState, socket, isRocketcrab }) => {
 	const isCustomRound = roundMode === "custom";
 	const isRoundActive = roundPhase === "active";
 	const isTimeoutGuessPhase = roundPhase === "timeout-guess";
+	const isRevealedSpyGuessPhase = roundPhase === "revealed-spy-guess";
+	const isGuessPhase = isTimeoutGuessPhase || isRevealedSpyGuessPhase;
 	const isSpyOfferPhase = roundPhase === "offering-spies";
-	const isRoundToolsVisible = isRoundActive || isTimeoutGuessPhase;
+	const isPreRevealPhase = roundPhase === "zero-spy-delay";
+	const isRoundToolsVisible = isRoundActive || isGuessPhase;
 	const canManageRoom = Boolean(me.isAdmin);
 	const canGuessNow =
 		isSpy &&
-		(isRoundActive || isTimeoutGuessPhase) &&
+		(isRoundActive || isGuessPhase) &&
 		me.guessesRemaining > 0 &&
-		!me.timeoutGuessDone;
+		(!isGuessPhase || !me.timeoutGuessDone);
 	const locationListKey = locationList.join("\u0000");
 
 	useEffect(() => {
@@ -69,7 +73,7 @@ const InGame = ({ gameState, socket, isRocketcrab }) => {
 		setSpyGuessMode(false);
 		setSelectedGuessWord("");
 		setWordMarks({});
-	}, [gameState.currentRoundNum, locationListKey]);
+	}, [currentRoundNum, locationListKey]);
 
 	useEffect(() => {
 		if (!locationList.includes(selectedGuessWord)) {
@@ -172,11 +176,17 @@ const InGame = ({ gameState, socket, isRocketcrab }) => {
 								Main timer ended. Spies may use remaining guesses before reveal.
 							</div>
 						)}
+						{isRevealedSpyGuessPhase && (
+							<div className="subtitle">
+								All spies have been revealed. Revealed spies may use any remaining
+								guesses before the round ends.
+							</div>
+						)}
 					</div>
 				</div>
 			)}
 
-			{!isRocketcrab && <AccessCode code={gameState.code} />}
+			<AccessCode code={gameState.code} />
 
 			<HideableContainer title={"Your Role"} initialHidden={false}>
 				<div className="status-container-content">
@@ -187,7 +197,9 @@ const InGame = ({ gameState, socket, isRocketcrab }) => {
 						isSpy={isSpy}
 						isObserver={isObserver}
 						isSpyOfferPhase={isSpyOfferPhase}
+						isPreRevealPhase={isPreRevealPhase}
 						isTimeoutGuessPhase={isTimeoutGuessPhase}
+						isRevealedSpyGuessPhase={isRevealedSpyGuessPhase}
 						spyOffer={spyOffer}
 						socket={socket}
 						t={t}
@@ -200,11 +212,12 @@ const InGame = ({ gameState, socket, isRocketcrab }) => {
 				</div>
 			</HideableContainer>
 
-			{isTimeoutGuessPhase && (
+			{isGuessPhase && (
 				<div className="question-active-card" style={{ marginBottom: "1em" }}>
 					<div>
-						Questions and accusations are closed while spies finish any remaining
-						guesses.
+						{isTimeoutGuessPhase
+							? "Questions and accusations are closed while spies finish any remaining guesses."
+							: "All hidden spies have been found. Questions and accusations are closed while revealed spies finish any remaining guesses."}
 					</div>
 					{canManageRoom && (
 						<div style={{ marginTop: "0.75em" }}>
@@ -245,13 +258,15 @@ const InGame = ({ gameState, socket, isRocketcrab }) => {
 					socket={socket}
 					questionTurn={questionTurn}
 					activeAccusationVote={activeAccusationVote}
+					currentRoundNum={currentRoundNum}
 				/>
-			) : !isTimeoutGuessPhase ? (
+			) : !isGuessPhase ? (
 				<HideableContainer title={"Round Tools"} initialHidden={false}>
 					<div className="status-container-content question-helper">
 						<div className="settings-help">
-							Questioning, accusations, and guesses unlock once the round
-							becomes active.
+							{isSpyOfferPhase || isPreRevealPhase
+								? "Questioning, accusations, and guesses unlock once clues are revealed."
+								: "Questioning, accusations, and guesses unlock once the round becomes active."}
 						</div>
 					</div>
 				</HideableContainer>
@@ -385,19 +400,17 @@ const InGame = ({ gameState, socket, isRocketcrab }) => {
 						{t("ui.end game")}
 					</button>
 				)}
-				{!isRocketcrab && (
-					<button
-						className="btn-leave"
-						onClick={() =>
-							popup(t("ui.leave game"), t("ui.back"), () => {
-								socket.disconnect();
-								Router.push("/");
-							})
-						}
-					>
-						{t("ui.leave game")}
-					</button>
-				)}
+				<button
+					className="btn-leave"
+					onClick={() =>
+						popup(t("ui.leave game"), t("ui.back"), () => {
+							socket.disconnect();
+							Router.push("/");
+						})
+					}
+				>
+					{t("ui.leave game")}
+				</button>
 			</div>
 		</div>
 	);
@@ -410,7 +423,9 @@ const RolePanel = ({
 	isSpy,
 	isObserver,
 	isSpyOfferPhase,
+	isPreRevealPhase,
 	isTimeoutGuessPhase,
+	isRevealedSpyGuessPhase,
 	spyOffer,
 	socket,
 	t,
@@ -438,7 +453,16 @@ const RolePanel = ({
 		return <SpyOfferStatus spyOffer={spyOffer} isSpy={isSpy} socket={socket} />;
 	}
 
+	if (isPreRevealPhase) {
+		return (
+			<div className="player-status player-status-not-spy">
+				Waiting for clues to be revealed.
+			</div>
+		);
+	}
+
 	if (isSpy) {
+		const isGuessPhase = isTimeoutGuessPhase || isRevealedSpyGuessPhase;
 		const showGuessControls = me.guessesRemaining > 0 && !me.timeoutGuessDone;
 		return (
 			<>
@@ -449,14 +473,18 @@ const RolePanel = ({
 				</div>
 				<div className="settings-help">Guesses left: {me.guessesRemaining}</div>
 				<div className="settings-help">
-					{isTimeoutGuessPhase
-						? "The timer ended. Use any remaining guesses, or mark yourself done."
-						: "Tap words below to cycle neutral, yellow, and pink. Use guess mode only when you want to submit a real guess."}
+					{isRevealedSpyGuessPhase
+						? "All spies have been found. Use any remaining guesses, or mark yourself done."
+						: isTimeoutGuessPhase
+							? "The timer ended. Use any remaining guesses, or mark yourself done."
+							: me.revealedSpyStatus === "spy"
+								? "You were revealed, but you may still use your remaining guesses at any time."
+								: "Tap words below to cycle neutral, yellow, and pink. Use guess mode only when you want to submit a real guess."}
 				</div>
-				{me.timeoutGuessDone && isTimeoutGuessPhase && (
+				{me.timeoutGuessDone && isGuessPhase && (
 					<div className="settings-help">You marked yourself done guessing.</div>
 				)}
-				{!showGuessControls && isTimeoutGuessPhase && (
+				{!showGuessControls && isGuessPhase && (
 					<div className="settings-help">No guesses left. Waiting for reveal.</div>
 				)}
 				{showGuessControls && (
@@ -486,7 +514,7 @@ const RolePanel = ({
 								</button>
 							</>
 						)}
-						{isTimeoutGuessPhase && (
+						{isGuessPhase && (
 							<button
 								className="btn-small"
 								onClick={() => socket.emit("completeTimeoutGuessing")}
@@ -574,6 +602,7 @@ const QuestionHelper = ({
 	socket,
 	questionTurn,
 	activeAccusationVote,
+	currentRoundNum,
 }) => {
 	const [targetName, setTargetName] = useState("");
 	const [optionOne, setOptionOne] = useState("");
@@ -610,7 +639,7 @@ const QuestionHelper = ({
 
 	return (
 		<HideableContainer
-			key={`question-${questionTurn?.suggestedAskerName}-${me.name}-${activeQuestion?.id || "idle"}`}
+			key={`question-${currentRoundNum}-${questionTurn?.suggestedAskerName}-${me.name}-${activeQuestion?.id || "idle"}`}
 			title={"Question Helper"}
 			initialHidden={!isSuggestedAsker}
 		>
@@ -954,7 +983,7 @@ const getObserverStatusMessage = (player) => {
 		return "You are observing by admin choice. An admin can set you back to player mode.";
 	}
 	if (player.revealedSpyStatus === "spy") {
-		return "You were removed from the round and revealed as the spy. You cannot rejoin this round.";
+		return "You were removed from the round and revealed as the spy. You cannot rejoin this round, but you may still use any remaining guesses until the round ends.";
 	}
 	if (player.observerReason === "accusation-not-spy") {
 		return "You were voted out of the round as not-spy. You can still vote on accusations.";

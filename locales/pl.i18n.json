@@ -24,7 +24,7 @@
 		"enter an access code": "Podaj kod dostępu",
 		"invalid access code": "Przepraszam, nie ma gry o takim kodzie dostępu!",
 		"join": "Dołącz",
-		"footer": "<a href='http://international.hobbyworld.ru/catalog/25-spyfall/' target='_blank'>Spyfall</a> zaprojektowane przez Alexandr Ushan, opublikowane przez <a href='http://international.hobbyworld.ru/' target='_blank'>Hobby World</a>"
+		"footer": "Open source Spyfall"
 	},
 	"locations": {
 		"airplane": "Samolot",

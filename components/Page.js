@@ -13,16 +13,18 @@ const Page = ({ children, onThemeToggle, darkModeActive }) => {
 					name="viewport"
 					content="width=device-width, initial-scale=1, maximum-scale=1"
 				/>
-				<meta name="description" content="By Tanner Krewson" />
-				<meta name="keywords" content="crabhat, app, online, spyfall 2" />
 				<meta
-					name="google-site-verification"
-					content="RjPwvAWbCuLI-PVrf0kdrN4cMCwTcy7nx85lTXTZsao"
+					name="description"
+					content="Open source online Spyfall rooms you can self-host."
+				/>
+				<meta
+					name="keywords"
+					content="spyfall, party game, social deduction, online game, self-hosted"
 				/>
 				<meta name="apple-mobile-web-app-title" content="Spyfall" />
 				<meta name="application-name" content="Spyfall" />
 				<meta name="msapplication-TileColor" content="#ffffff" />
-				<meta name="theme-color" content="#ffffff" />
+				<meta name="theme-color" content={darkModeActive ? "#121212" : "#ffffff"} />
 				<title>Spyfall</title>
 
 				<link

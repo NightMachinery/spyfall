@@ -24,7 +24,7 @@
 		"enter an access code": "ゲームコード",
 		"invalid access code": "入力したコードは登録されていません。改めて入力してください。",
 		"join": "入場",
-		"footer": "<a href='http://international.hobbyworld.ru/catalog/25-spyfall/' target='_blank'>Spyfall（スパイフォール）</a>は、Alexandr Ushanにデザインされ、<a href='http://international.hobbyworld.ru/' target='_blank'>Hobby World</a>に出版されております。"
+		"footer": "Open source Spyfall"
 	},
 	"locations": {
 		"airplane": "飛行機",

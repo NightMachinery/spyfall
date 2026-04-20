@@ -24,7 +24,7 @@
 		"enter an access code": "Add meg a hozzáférési kódot",
 		"invalid access code": "Sajnáljuk, a megadott hozzáférési kóddal nem található játék!",
 		"join": "Csatlakozás",
-		"footer": "<a href='http://international.hobbyworld.ru/catalog/25-spyfall/' target='_blank'>Spyfallt</a> tervezte: Alexandr Ushan. Közzétette: <a href='http://international.hobbyworld.ru/' target='_blank'>Hobby World</a>"
+		"footer": "Open source Spyfall"
 	},
 	"locations": {
 		"airplane": "Repülőgép",

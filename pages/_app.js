@@ -66,13 +66,18 @@ function MyApp({ Component, pageProps }) {
 						}
 
 						.footer,
-						.language-list {
+						.language-list,
+						.settings-help,
+						.copy-feedback,
+						.event-cue-description,
+						.btn-toggle-status {
 							color: #ddd;
 						}
 						button:hover,
 						button:active,
 						button:focus,
-						.swal2-container .swal2-title {
+						.swal2-container .swal2-title,
+						.swal2-container .swal2-html-container {
 							color: white;
 						}
 						.swal2-container .swal2-popup {
@@ -89,12 +94,30 @@ function MyApp({ Component, pageProps }) {
 						}
 
 						input[type="text"],
+						input[type="number"],
 						select,
+						textarea,
 						.box,
-						.lobby-player-list > .player-box {
+						.lobby-player-list > .player-box,
+						.question-active-card,
+						.status-container,
+						.access-code > span {
 							border-color: #aaa !important;
 							background-color: #333 !important;
 							color: white !important;
+						}
+						input::placeholder,
+						textarea::placeholder {
+							color: #bbb !important;
+						}
+						.question-helper label,
+						.event-cue-group-option,
+						.status-container-content {
+							color: white;
+						}
+						.question-active-card,
+						.status-container {
+							box-shadow: none;
 						}
 						.game-countdown {
 							color: #ddd;
@@ -102,6 +125,10 @@ function MyApp({ Component, pageProps }) {
 						.access-code,
 						.access-code > span {
 							color: #fff;
+						}
+						.event-cue-toast {
+							background: rgba(12, 12, 12, 0.96);
+							border: 1px solid #555;
 						}
 						.box-striked {
 							background-color: #333 !important;

@@ -24,7 +24,7 @@
 		"enter an access code": "Ange en behörighetskod",
 		"invalid access code": "Tyvärr, inget spel hittades med koden du angett!",
 		"join": "Gå med",
-		"footer": "<a href='http://international.hobbyworld.ru/catalog/25-spyfall/' target='_blank'> Spyfall</a> designat av Alexandr Ushan, utgivet av <a href='http://international.hobbyworld.ru/' target='_blank'> Hobby World</a>"
+		"footer": "Open source Spyfall"
 	},
 	"locations": {
 		"airplane": "Flygplan",

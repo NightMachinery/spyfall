@@ -24,7 +24,7 @@
 		"enter an access code": "Nhập mã truy cập",
 		"invalid access code": "Xin lỗi, không tìm thấy bàn chơi nào với mã bạn nhập!",
 		"join": "Vào",
-		"footer": "Spyfall thiết kế bởi Alexandr Ushan, ban hành bởi Hobby World"
+		"footer": "Open source Spyfall"
 	},
 	"locations": {
 		"airplane": "Máy Bay",

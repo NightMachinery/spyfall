@@ -24,7 +24,7 @@
 		"enter an access code": "접속 코드 입력",
 		"invalid access code": "죄송합니다, 입력한 접속 코드와 맞는 게임이 없습니다.",
 		"join": "참가",
-		"footer": "<a href='http://international.hobbyworld.ru/catalog/25-spyfall/' target='_blank'>Spyfall</a> designed by Alexandr Ushan, published by <a href='http://international.hobbyworld.ru/' target='_blank'>Hobby World</a>"
+		"footer": "Open source Spyfall"
 	},
 	"locations": {
 		"airplane": "비행기",

@@ -24,7 +24,7 @@
 		"enter an access code": "הכנס קוד גישה",
 		"invalid access code": "שגיאה, לא נמצא משחק עם קוד הגישה הזה!",
 		"join": "הצטרפות",
-		"footer": "<a href='http://international.hobbyworld.ru/catalog/25-spyfall/' target='_blank'>ספייפול</a> נכתב על ידי אלכסנדר אושן, פורסם על ידי <a href='http://international.hobbyworld.ru/' target='_blank'>Hobby World</a>"
+		"footer": "Open source Spyfall"
 	},
 	"locations": {
 		"airplane": "מטוס",
