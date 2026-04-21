@@ -19,7 +19,7 @@ The script stores its local settings in `.self-host.env` and defaults to:
 
 Port `3000` is intentionally not used.
 The generated Caddy site block is HTTP-only by default because this environment cannot obtain certificates through the firewall.
-It runs in production mode by default. Use `SPYFALL_PRODUCTION_P=n` if you want the old dev-mode flow.
+The base tmux session name defaults to `spyfall-app`; development uses `spyfall-app-dev`.
 
 ## Commands
 
@@ -32,8 +32,8 @@ From the repo root:
 ./self_host.zsh redeploy
 ./self_host.zsh redeploy spy2.pinky.lilf.ir
 ./self_host.zsh start
+./self_host.zsh dev-start
 ./self_host.zsh stop
-SPYFALL_PRODUCTION_P=n ./self_host.zsh redeploy
 ```
 
 ### `setup [url]`
@@ -44,22 +44,29 @@ Initial deploy. It:
 2. updates `~/Caddyfile`
 3. reloads Caddy
 4. runs `pnpm import` + `pnpm install` if dependencies are missing or `package-lock.json` changed
-5. builds the app for production unless `SPYFALL_PRODUCTION_P=n`
-6. starts the app in tmux
+5. builds the app for production
+6. stops any managed production/dev tmux session
+7. starts the production app in tmux
 
 ### `redeploy [url]`
 
-Same flow as `setup`, but intended for pushing the latest local working tree back into production. In the default production mode it rebuilds before restarting the tmux session. It only reruns dependency installation when `package-lock.json` changed.
+Same flow as `setup`, but intended for pushing the latest local working tree back into production. It rebuilds before restarting the production tmux session, and it only reruns dependency installation when `package-lock.json` changed.
 
 ### `start`
 
-Starts the app from the saved `.self-host.env` settings.
-In production mode it reuses the existing `.next` build and only builds if the production build is missing.
-In development mode (`SPYFALL_PRODUCTION_P=n`), the port comes up before the first page compile finishes, so the first browser load can take a little longer than later ones.
+Starts the production app from the saved `.self-host.env` settings.
+It reuses the existing `.next` build and only builds if the production build is missing.
+Before launching, it stops both managed tmux sessions so production and development never compete for the same port.
+
+### `dev-start`
+
+Starts the development app from the saved `.self-host.env` settings by running `npm run dev`.
+That gives you the normal Next.js development flow: backend restarts through nodemon and frontend changes recompile/hot-reload as you edit files.
+Before launching, it stops both managed tmux sessions so development and production never compete for the same port.
 
 ### `stop`
 
-Stops the `spyfall-app` tmux session.
+Stops both managed tmux sessions: `spyfall-app` and `spyfall-app-dev` by default.
 
 ## Caddy block
 
@@ -76,15 +83,6 @@ http://spy.pinky.lilf.ir {
 
 If you pass a different URL to `setup` or `redeploy`, the script rewrites this block. If you pass a bare host like `spy.pinky.lilf.ir`, the script still writes it as `http://spy.pinky.lilf.ir`.
 
-## Mode selection
-
-The mode toggle is shell-only; it is **not** saved to `.self-host.env`.
-
-- default: production mode
-- dev override: `SPYFALL_PRODUCTION_P=n`
-- accepted truthy values: `y`, `yes`, `true`, `1`, `on`
-- accepted falsy values: `n`, `no`, `false`, `0`, `off`
-
 ## Intranet notes
 
 - The self-host flow does not rely on any external font/CDN requests; browsers fall back to local system fonts if the optional font packages are unavailable.
@@ -93,6 +91,7 @@ The mode toggle is shell-only; it is **not** saved to `.self-host.env`.
 - A successful dependency install writes `.self-host.install-stamp`, so later `redeploy` runs can skip the network when `package-lock.json` is unchanged.
 - The script uses `pnpm import` + `pnpm install` with a repo-local `.pnpm-store` to better tolerate flaky network downloads.
 - The script also installs `@next/swc-wasm-nodejs` and patches the local Next SWC loader so the app does not try to fetch native SWC binaries at runtime.
+- `start`, `dev-start`, `setup`, and `redeploy` all stop both managed app sessions before launching their chosen mode.
 
 If you want a different backend port, override it before `setup`:
 
@@ -105,7 +104,8 @@ SPYFALL_PORT=3310 ./self_host.zsh setup spy.pinky.lilf.ir
 Attach to the running app:
 
 ```bash
-tmux attach -t spyfall-app
+tmux attach -t =spyfall-app
+tmux attach -t =spyfall-app-dev
 ```
 
 Detach with `Ctrl-b` then `d`.

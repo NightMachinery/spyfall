@@ -32,6 +32,7 @@ Open source online Spyfall rooms you can run locally or self-host.
 - Set `PORT` to change the default port.
 - If `NODE_ENV=development`, you can open `/ffff` to jump into the built-in dev room.
 - The room URL shown in the app is generated from the current server origin at runtime.
+- Self-hosting uses `./self_host.zsh start` for production and `./self_host.zsh dev-start` for hot-reloading development.
 
 ## Docs
 

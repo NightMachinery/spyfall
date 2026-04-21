@@ -13,11 +13,12 @@ NODE_VERSION="20"
 CADDY_BEGIN="# BEGIN spyfall self-host"
 CADDY_END="# END spyfall self-host"
 PROXY_EXPORTS='export ALL_PROXY=http://127.0.0.1:2097 all_proxy=http://127.0.0.1:2097 http_proxy=http://127.0.0.1:2097 https_proxy=http://127.0.0.1:2097 HTTP_PROXY=http://127.0.0.1:2097 HTTPS_PROXY=http://127.0.0.1:2097 npm_config_proxy=http://127.0.0.1:2097 npm_config_https_proxy=http://127.0.0.1:2097'
-ORIGINAL_SPYFALL_PRODUCTION_P="${SPYFALL_PRODUCTION_P-__SPYFALL_UNSET__}"
 
 tmuxnew () {
-	tmux kill-session -t "$1" &> /dev/null || true
-	tmux new -d -s "$@"
+	local session="$1"
+	shift
+	tmux kill-session -t "=${session}" &> /dev/null || true
+	tmux new -d -s "$session" "$@"
 }
 
 usage() {
@@ -26,11 +27,13 @@ Usage:
   ./self_host.zsh setup [url]
   ./self_host.zsh redeploy [url]
   ./self_host.zsh start
+  ./self_host.zsh dev-start
   ./self_host.zsh stop
 
 Notes:
   - The default URL is spy.pinky.lilf.ir.
-  - Production mode is enabled by default; use SPYFALL_PRODUCTION_P=n to keep the dev server flow.
+  - setup, redeploy, and start always run the production build.
+  - dev-start runs the development server with code reload support.
   - Override the backend port with SPYFALL_PORT=3301 ./self_host.zsh setup ...
   - For pure intranet HTTP, pass a scheme too, e.g. http://spy.lan
 EOF
@@ -47,39 +50,6 @@ caddy_site_label() {
 	else
 		print -- "http://$SPYFALL_HOST"
 	fi
-}
-
-load_runtime_mode() {
-	local raw_mode
-	local normalized_mode
-
-	if [[ "$ORIGINAL_SPYFALL_PRODUCTION_P" == "__SPYFALL_UNSET__" ]]; then
-		raw_mode=""
-	else
-		raw_mode="$ORIGINAL_SPYFALL_PRODUCTION_P"
-	fi
-
-	if [[ -z "$raw_mode" ]]; then
-		export SPYFALL_PRODUCTION_P="y"
-		return
-	fi
-
-	normalized_mode="${raw_mode:l}"
-	case "$normalized_mode" in
-		y|yes|true|1|on)
-			export SPYFALL_PRODUCTION_P="y"
-			;;
-		n|no|false|0|off)
-			export SPYFALL_PRODUCTION_P="n"
-			;;
-		*)
-			die "Invalid SPYFALL_PRODUCTION_P=$raw_mode (use y/n, true/false, or 1/0)."
-			;;
-	esac
-}
-
-is_production_mode() {
-	[[ "$SPYFALL_PRODUCTION_P" == "y" ]]
 }
 
 load_saved_config() {
@@ -134,6 +104,14 @@ self_host_runtime_exports() {
 	fi
 
 	print -- "$exports"
+}
+
+prod_session_name() {
+	print -- "$SPYFALL_SESSION"
+}
+
+dev_session_name() {
+	print -- "${SPYFALL_SESSION}-dev"
 }
 
 lock_hash() {
@@ -271,52 +249,93 @@ EOF
 }
 
 stop_app() {
-	if tmux has-session -t "$SPYFALL_SESSION" 2>/dev/null; then
-		tmux kill-session -t "$SPYFALL_SESSION"
-		print -- "Stopped tmux session: $SPYFALL_SESSION"
+	local session="$1"
+	if tmux has-session -t "=${session}" 2>/dev/null; then
+		tmux kill-session -t "=${session}"
+		print -- "Stopped tmux session: $session"
 	else
-		print -- "tmux session not running: $SPYFALL_SESSION"
+		print -- "tmux session not running: $session"
 	fi
 }
 
-start_app() {
-	if port_in_use "$SPYFALL_PORT" && ! tmux has-session -t "$SPYFALL_SESSION" 2>/dev/null; then
-		die "Port $SPYFALL_PORT is already in use; set SPYFALL_PORT to a free port and rerun setup."
-	fi
-
-	local quoted_root=${(q)ROOT_DIR}
-	local env_exports
-	local start_cmd
-	env_exports=$(self_host_runtime_exports)
-
-	if is_production_mode; then
-		ensure_production_build
-		start_cmd="nvm-load; nvm use ${NODE_VERSION} >/dev/null; cd ${quoted_root}; ${env_exports} export PORT=${SPYFALL_PORT} NODE_ENV=production; exec node server.js"
-	else
-		start_cmd="nvm-load; nvm use ${NODE_VERSION} >/dev/null; cd ${quoted_root}; ${env_exports} export PORT=${SPYFALL_PORT} NODE_ENV=development; exec node server.js"
-	fi
-
-	local tmux_cmd="zsh -ic ${(q)start_cmd}"
-
-	tmuxnew "$SPYFALL_SESSION" "$tmux_cmd"
-	print -- "Started tmux session: $SPYFALL_SESSION"
-
+wait_for_port_release() {
 	local attempt
-	for attempt in {1..120}; do
-		if port_in_use "$SPYFALL_PORT"; then
-			print -- "Spyfall is live at $(caddy_site_label) -> 127.0.0.1:$SPYFALL_PORT"
-			if is_production_mode; then
-				print -- "Running in production mode (override with SPYFALL_PRODUCTION_P=n for dev mode)."
-			else
-				print -- "Running in development mode; the first browser request can take a bit while Next compiles."
-			fi
-			print -- "Logs: tmux attach -t $SPYFALL_SESSION"
+
+	for attempt in {1..15}; do
+		if ! port_in_use "$SPYFALL_PORT"; then
 			return
 		fi
 		sleep 1
 	done
 
-	die "Spyfall did not become ready; inspect logs with: tmux attach -t $SPYFALL_SESSION"
+	if port_in_use "$SPYFALL_PORT"; then
+		die "Port $SPYFALL_PORT is already in use by another process; stop it or set SPYFALL_PORT to a free port and retry."
+	fi
+}
+
+stop_managed_sessions() {
+	stop_app "$(prod_session_name)"
+	stop_app "$(dev_session_name)"
+}
+
+stop_managed_apps_for_restart() {
+	stop_managed_sessions
+	wait_for_port_release
+}
+
+start_tmux_app() {
+	local session="$1"
+	local start_cmd="$2"
+	local mode_label="$3"
+	local logs_hint="$4"
+	local ready_note="$5"
+	local tmux_cmd="zsh -ic ${(q)start_cmd}"
+
+	if port_in_use "$SPYFALL_PORT"; then
+		die "Port $SPYFALL_PORT is already in use by another process; stop it or set SPYFALL_PORT to a free port and retry."
+	fi
+
+	tmuxnew "$session" "$tmux_cmd"
+	print -- "Started tmux session: $session"
+
+	local attempt
+	for attempt in {1..120}; do
+		if port_in_use "$SPYFALL_PORT"; then
+			print -- "Spyfall is live at $(caddy_site_label) -> 127.0.0.1:$SPYFALL_PORT"
+			print -- "Running in ${mode_label} mode."
+			print -- "$ready_note"
+			print -- "Logs: $logs_hint"
+			return
+		fi
+		sleep 1
+	done
+
+	die "Spyfall did not become ready; inspect logs with: $logs_hint"
+}
+
+start_production_app() {
+	local env_exports
+	local start_cmd
+	local quoted_root=${(q)ROOT_DIR}
+	env_exports=$(self_host_runtime_exports)
+
+	ensure_production_build
+	stop_managed_apps_for_restart
+
+	start_cmd="nvm-load; nvm use ${NODE_VERSION} >/dev/null; cd ${quoted_root}; ${env_exports} export PORT=${SPYFALL_PORT} NODE_ENV=production; exec node server.js"
+	start_tmux_app "$(prod_session_name)" "$start_cmd" "production" "tmux attach -t =$(prod_session_name)" "Serving the production build."
+}
+
+start_development_app() {
+	local env_exports
+	local start_cmd
+	local quoted_root=${(q)ROOT_DIR}
+	env_exports=$(self_host_runtime_exports)
+
+	stop_managed_apps_for_restart
+
+	start_cmd="nvm-load; nvm use ${NODE_VERSION} >/dev/null; cd ${quoted_root}; ${env_exports} export PORT=${SPYFALL_PORT} NODE_ENV=development; exec npm run dev"
+	start_tmux_app "$(dev_session_name)" "$start_cmd" "development" "tmux attach -t =$(dev_session_name)" "Hot reload is enabled; the first browser request can take a bit while Next compiles."
 }
 
 setup_or_redeploy() {
@@ -332,16 +351,13 @@ setup_or_redeploy() {
 	update_caddyfile
 	install_dependencies_if_needed
 	ensure_swc_wasm_workaround
-	if is_production_mode; then
-		build_production_app
-	fi
-	start_app
+	build_production_app
+	start_production_app
 }
 
 main() {
 	local command="${1-}"
 	load_saved_config
-	load_runtime_mode
 	require_commands
 	require_node_toolchain
 
@@ -353,10 +369,13 @@ main() {
 			setup_or_redeploy "${2-}"
 			;;
 		start)
-			start_app
+			start_production_app
+			;;
+		dev-start)
+			start_development_app
 			;;
 		stop)
-			stop_app
+			stop_managed_sessions
 			;;
 		""|-h|--help|help)
 			usage
