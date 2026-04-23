@@ -11,6 +11,7 @@ Open source online Spyfall rooms you can run locally or self-host.
 ## Current feature highlights
 
 - private rooms with reconnect-aware player identity
+- built-in plain-text wordpacks with per-player language fallback
 - flexible spy counts, including zero-spy rounds
 - optional spy-role refusal flow
 - accusation voting and terminal accusations
@@ -32,9 +33,11 @@ Open source online Spyfall rooms you can run locally or self-host.
 - Set `PORT` to change the default port.
 - If `NODE_ENV=development`, you can open `/ffff` to jump into the built-in dev room.
 - The room URL shown in the app is generated from the current server origin at runtime.
+- Built-in wordpacks now live under `./wordpacks/`.
 - Self-hosting uses `./self_host.zsh start` for production and `./self_host.zsh dev-start` for hot-reloading development.
 
 ## Docs
 
 - `docs/self-hosting.md` — VPS/self-host deploy flow
 - `docs/2026-04-21-round-flow-and-branding.md` — gameplay, cue, and branding changes added in this update
+- `docs/2026-04-23-wordpacks.md` — wordpack storage, locale fallback, and migration notes

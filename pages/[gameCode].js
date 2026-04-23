@@ -2,7 +2,7 @@ import React, { useState, useEffect, useRef, useCallback } from "react";
 import { useRouter } from "next/router";
 import socketIOClient from "socket.io-client";
 import Swal from "sweetalert2";
-import { useI18n } from "../locales";
+import { useCurrentLocale, useI18n } from "../locales";
 
 import NameEntry from "../components/NameEntry";
 import Lobby from "../components/Lobby";
@@ -252,6 +252,7 @@ const maybeEmitStateCues = (previousState, nextState, emitCue) => {
 const Game = ({ loading }) => {
 	const router = useRouter();
 	const t = useI18n();
+	const locale = useCurrentLocale();
 	const { gameCode } = router.query;
 
 	const [gameState, setGameState] = useState({
@@ -404,8 +405,14 @@ const Game = ({ loading }) => {
 		socket.emit("joinGame", {
 			gameCode,
 			authToken: getOrCreateAuthToken(),
+			locale,
 		});
 	}, [gameCode, isConnected, router.isReady]);
+
+	useEffect(() => {
+		if (!router.isReady || !gameCode || !isConnected) return;
+		socket.emit("setLocale", locale);
+	}, [gameCode, isConnected, locale, router.isReady]);
 
 	const onNameEntry = (name) => {
 		socket.emit("name", name);

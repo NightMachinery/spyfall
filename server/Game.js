@@ -1,5 +1,5 @@
 const Player = require("./Player");
-const Locations = require("./Locations");
+const Wordpacks = require("./Wordpacks");
 
 const DISCONNECTED_PLAYER_TTL_MS = 2 * 60 * 1000;
 const MAX_CUSTOM_WORDS_TEXT_LENGTH = 20000;
@@ -23,9 +23,9 @@ class Game {
 		this.tempAdminAuthTokens = new Set();
 		this.status = "lobby-waiting";
 		this.roundPhase = "idle";
-		this.roundMode = "pack";
-		this.location = null;
-		this.locationList = [];
+		this.roundMode = "wordpack";
+		this.word = null;
+		this.wordList = [];
 		this.timeLeft = null;
 		this.timePaused = false;
 		this.currentRoundNum = 0;
@@ -44,7 +44,7 @@ class Game {
 		this.questionTimeout = null;
 		this.preRoundDelayTimeout = null;
 		this.settings = {
-			locationPack: "spyfall1",
+			wordpack: "Spyfall1",
 			timeLimit: 8,
 			includeAllSpy: false,
 			allowSpyRefusal: true,
@@ -93,30 +93,50 @@ class Game {
 	emitRoundOutcome = (payload) => {
 		for (const player of this.players) {
 			if (!player.socket || !player.connected) continue;
-			player.socket.emit("roundOutcome", payload);
+			player.socket.emit("roundOutcome", this.withReveal(payload, player));
 		}
 	};
 
-	getRevealKind = () => (this.roundMode === "custom" ? "word" : "location");
+	getRevealKind = () => "word";
 
-	getRevealName = () => this.location?.name || null;
+	getLocalizedWordForPlayer = (player, word = this.word) => {
+		if (!word) return null;
+		if (this.roundMode === "custom") {
+			return normalizeWordEntry(word);
+		}
+		return Wordpacks.localizeWord(this.settings.wordpack, word, player?.locale);
+	};
 
-	withReveal = (payload = {}) => {
-		const revealedName = this.getRevealName();
+	getLocalizedWordListForPlayer = (player, wordList = this.wordList) => {
+		if (this.roundMode === "custom") {
+			return (wordList || []).map((word) => normalizeWordEntry(word));
+		}
+		return Wordpacks.localizeWordList(
+			this.settings.wordpack,
+			wordList,
+			player?.locale,
+		);
+	};
+
+	getRevealLabel = (player) =>
+		this.getLocalizedWordForPlayer(player, this.word)?.label || null;
+
+	withReveal = (payload = {}, player) => {
+		const revealedLabel = this.getRevealLabel(player);
 		const revealKind = this.getRevealKind();
-		const revealText = revealedName
-			? ` Revealed ${revealKind}: ${revealedName}.`
+		const revealText = revealedLabel
+			? ` Revealed ${revealKind}: ${revealedLabel}.`
 			: "";
 		return {
 			...payload,
 			revealKind,
-			revealedLocationName: revealedName,
+			revealedWordLabel: revealedLabel,
 			text: `${payload?.text || ""}${revealText}`.trim(),
 		};
 	};
 
-	initPlayer(socket, authToken) {
-		const player = this.addPlayer(socket, authToken);
+	initPlayer(socket, authToken, locale) {
+		const player = this.addPlayer(socket, authToken, locale);
 		this.attachListenersToPlayer(player);
 
 		this.refreshAdminState();
@@ -130,19 +150,19 @@ class Game {
 		this.sendNewStateToAllPlayers();
 	}
 
-	addPlayer(socket, authToken) {
+	addPlayer(socket, authToken, locale) {
 		const resolvedAuthToken = this.resolveAuthToken(socket, authToken);
 		const playerToReplace = this.findPlayerByAuthToken(resolvedAuthToken);
 
 		if (playerToReplace) {
-			return Game.replacePlayer(playerToReplace, socket);
+			return Game.replacePlayer(playerToReplace, socket, locale);
 		}
 
-		return this.createPlayer(socket, resolvedAuthToken);
+		return this.createPlayer(socket, resolvedAuthToken, locale);
 	}
 
-	createPlayer(socket, authToken) {
-		const newPlayer = new Player(socket, authToken);
+	createPlayer(socket, authToken, locale) {
+		const newPlayer = new Player(socket, authToken, locale);
 		if (!this.creatorAuthToken) {
 			this.creatorAuthToken = authToken;
 		}
@@ -156,7 +176,7 @@ class Game {
 		return newPlayer;
 	}
 
-	static replacePlayer(player, socket) {
+	static replacePlayer(player, socket, locale) {
 		if (player.socket && player.socket !== socket) {
 			player.socket.removeAllListeners();
 			try {
@@ -169,6 +189,7 @@ class Game {
 		player.clearDisconnectTimeout();
 		player.socket = socket;
 		player.connected = true;
+		player.setLocale(locale);
 		return player;
 	}
 
@@ -440,6 +461,7 @@ class Game {
 		socket.on("updateSettings", (settings) =>
 			this.updateSettings(player, settings),
 		);
+		socket.on("setLocale", (locale) => this.setPlayerLocale(player, locale));
 		socket.on("clearName", () => this.clearName(player)());
 		socket.on("submitQuestionPrompt", (payload) =>
 			this.submitQuestionPrompt(player, payload),
@@ -463,6 +485,13 @@ class Game {
 			this.startTerminalAccusation(player, targetType),
 		);
 		socket.on("voteAccusation", (vote) => this.voteAccusation(player, vote));
+	};
+
+	setPlayerLocale = (player, locale) => {
+		player.setLocale(locale);
+		if (player.socket && player.connected) {
+			player.socket.emit("gameChange", this.getStateForPlayer(player));
+		}
 	};
 
 	setName = (newPlayer) => (name) => {
@@ -569,8 +598,8 @@ class Game {
 			thePlayer.manualObserver = manualObserver;
 		});
 
-		const locationPicked = this.pickLocation(player);
-		if (!locationPicked) return false;
+		const wordPicked = this.pickWord(player);
+		if (!wordPicked) return false;
 
 		this.pickFirst(roundPlayers);
 
@@ -588,9 +617,6 @@ class Game {
 		}
 
 		this.assignSpies(roundPlayers, spyCount);
-		if (this.roundMode !== "custom") {
-			this.assignRoles(roundPlayers);
-		}
 		if (spyCount === 0) {
 			return this.startZeroSpyDelay(roundPlayers);
 		}
@@ -657,9 +683,9 @@ class Game {
 
 		this.status = "lobby-waiting";
 		this.roundPhase = "idle";
-		this.roundMode = "pack";
-		this.location = null;
-		this.locationList = [];
+		this.roundMode = "wordpack";
+		this.word = null;
+		this.wordList = [];
 		this.timeLeft = null;
 		this.timePaused = false;
 		this.questionHistory = [];
@@ -693,11 +719,11 @@ class Game {
 
 	finishRoundWithOutcome = (payload) => {
 		this.pendingRoundOutcome = null;
-		this.emitRoundOutcome(this.withReveal(payload));
+		this.emitRoundOutcome(payload);
 		this.resetToLobbyState();
 	};
 
-	pickLocation = (player) => {
+	pickWord = (player) => {
 		if (this.settings.customWordsEnabled) {
 			const allWords = this.getParsedCustomWords();
 			if (allWords.length < 2) {
@@ -719,27 +745,21 @@ class Game {
 				subset[Math.floor(Math.random() * subset.length)] || subset[0];
 
 			this.roundMode = "custom";
-			this.location = {
-				name: chosenWord,
-				isCustomWordsLocation: true,
-			};
-			this.locationList = subset;
+			this.word = chosenWord;
+			this.wordList = subset;
 			return true;
 		}
 
-		const { locationPack } = this.settings;
-		const nextLocation = Locations.getRandomLocationFromPack(
-			locationPack,
-			false,
-		);
-		if (!nextLocation) {
-			this.emitActionError(player.socket, "That location pack is unavailable.");
+		const { wordpack } = this.settings;
+		const nextWord = Wordpacks.getRandomWordFromPack(wordpack);
+		if (!nextWord) {
+			this.emitActionError(player.socket, "That wordpack is unavailable.");
 			return false;
 		}
 
-		this.roundMode = "pack";
-		this.location = nextLocation;
-		this.locationList = Locations.getLocationListFromPack(locationPack, false);
+		this.roundMode = "wordpack";
+		this.word = nextWord;
+		this.wordList = Wordpacks.getWordListFromPack(wordpack);
 		return true;
 	};
 
@@ -851,10 +871,6 @@ class Game {
 			return;
 		}
 
-		if (this.roundMode !== "custom") {
-			this.assignRoles(roundPlayers);
-		}
-
 		this.resetSpyOfferState();
 		this.finishRoundAssignment(roundPlayers);
 	};
@@ -937,15 +953,6 @@ class Game {
 
 	pickFirst = (players) => {
 		players[Math.floor(Math.random() * players.length)].isFirst = true;
-	};
-
-	assignRoles = (players) => {
-		const defaultRole = this.location.roles[this.location.roles.length - 1];
-		const shuffledRoles = shuffleArray(this.location.roles.slice());
-		players.forEach((player) => {
-			if (player.role === "spy") return;
-			player.role = shuffledRoles.pop() || defaultRole;
-		});
 	};
 
 	pickSpyCount = (playerCount) => {
@@ -1140,7 +1147,7 @@ class Game {
 		const nextSettings = {
 			...this.settings,
 			...pickDefinedKeys(partialSettings, [
-				"locationPack",
+				"wordpack",
 				"timeLimit",
 				"includeAllSpy",
 				"allowSpyRefusal",
@@ -1163,7 +1170,7 @@ class Game {
 
 	normalizeSettings = (inputSettings = this.settings) => {
 		const availablePackIds = new Set(
-			Locations.AVAILABLE_LOCATION_PACKS.map(({ id }) => id),
+			Wordpacks.AVAILABLE_WORDPACKS.map(({ id }) => id),
 		);
 		const playerCap =
 			Math.max(
@@ -1173,9 +1180,9 @@ class Game {
 		const safePlayerCap = Math.max(1, playerCap);
 
 		const nextSettings = {
-			locationPack: availablePackIds.has(inputSettings.locationPack)
-				? inputSettings.locationPack
-				: "spyfall1",
+			wordpack: availablePackIds.has(inputSettings.wordpack)
+				? inputSettings.wordpack
+				: "Spyfall1",
 			timeLimit: clamp(parseInteger(inputSettings.timeLimit, 8), 0, 60),
 			includeAllSpy: Boolean(inputSettings.includeAllSpy),
 			allowSpyRefusal: Boolean(inputSettings.allowSpyRefusal),
@@ -1658,17 +1665,17 @@ class Game {
 		};
 	};
 
-	submitSpyGuess = (player, guess) => {
+	submitSpyGuess = (player, guessWordId) => {
 		if (!this.canPlayerSubmitSpyGuess(player)) return;
 
-		const cleanGuess = sanitizeFreeText(guess, MAX_GUESS_LENGTH);
+		const cleanGuess = sanitizeFreeText(guessWordId, MAX_GUESS_LENGTH);
 		if (!cleanGuess) {
 			this.emitActionError(player.socket, "Choose a guess.");
 			return;
 		}
 
 		player.guessesRemaining = Math.max(0, player.guessesRemaining - 1);
-		if (this.location && cleanGuess === this.location.name) {
+		if (this.word && cleanGuess === this.word.id) {
 			player.revealedSpyStatus = "spy";
 			player.canBePromoted = false;
 			this.clearTimer();
@@ -1816,17 +1823,7 @@ class Game {
 		player.observerReason = null;
 		player.isFirst = false;
 		player.canBePromoted = true;
-		if (!this.location || this.roundMode === "custom") {
-			player.role = null;
-			this.reconcileAccusationState();
-			this.refreshSuggestedQuestionTurn(player.authToken);
-			return;
-		}
-		const defaultRole =
-			this.location.roles?.[this.location.roles.length - 1] || null;
-		if (player.revealedSpyStatus !== "spy") {
-			player.role = defaultRole;
-		}
+		player.role = null;
 		this.maybeFinalizeGuessPhase();
 		this.reconcileAccusationState();
 		this.refreshSuggestedQuestionTurn(player.authToken);
@@ -1852,10 +1849,7 @@ class Game {
 			player.observer = false;
 			player.observerReason = null;
 			player.revealedSpyStatus = null;
-			player.role =
-				this.roundMode === "custom"
-					? null
-					: this.location?.roles?.[this.location.roles.length - 1] || null;
+			player.role = null;
 			player.guessesRemaining = 0;
 			player.accusationsRemaining = 1;
 		}
@@ -1875,7 +1869,10 @@ class Game {
 			const cleanLine = sanitizeFreeText(line, 80);
 			if (!cleanLine || uniqueWords.has(cleanLine)) continue;
 			uniqueWords.add(cleanLine);
-			words.push(cleanLine);
+			words.push({
+				id: `custom:${words.length}`,
+				label: cleanLine,
+			});
 		}
 		return words;
 	};
@@ -1937,8 +1934,10 @@ class Game {
 		}
 	};
 
-	getVisibleLocationForPlayer = (player) => {
-		if (this.status !== "ingame") return this.location;
+	getVisibleWordForPlayer = (player) => {
+		if (this.status !== "ingame") {
+			return this.getLocalizedWordForPlayer(player, this.word);
+		}
 		if (
 			!this.isRoundActive() &&
 			this.roundPhase !== "timeout-guess" &&
@@ -1946,24 +1945,26 @@ class Game {
 		)
 			return null;
 		if (
-			!this.location ||
+			!this.word ||
 			player.role === "spy" ||
 			player.manualObserver ||
 			player.observer
 		)
 			return null;
-		return this.location;
+		return this.getLocalizedWordForPlayer(player, this.word);
 	};
 
-	getVisibleLocationListForPlayer = () => {
-		if (this.status !== "ingame") return this.locationList;
+	getVisibleWordListForPlayer = (player) => {
+		if (this.status !== "ingame") {
+			return this.getLocalizedWordListForPlayer(player, this.wordList);
+		}
 		if (
 			!this.isRoundActive() &&
 			this.roundPhase !== "timeout-guess" &&
 			this.roundPhase !== "revealed-spy-guess"
 		)
 			return [];
-		return this.locationList;
+		return this.getLocalizedWordListForPlayer(player, this.wordList);
 	};
 
 	getSettingsForPlayer = (player) => {
@@ -2034,13 +2035,13 @@ class Game {
 			status: this.status,
 			roundPhase: this.roundPhase,
 			roundMode: this.roundMode,
-			location: this.getVisibleLocationForPlayer(player),
-			locationList: this.getVisibleLocationListForPlayer(player),
+			word: this.getVisibleWordForPlayer(player),
+			wordList: this.getVisibleWordListForPlayer(player),
 			spyOffer: this.getSpyOfferForPlayer(player),
 			timeLeft: this.timeLeft,
 			timePaused: this.timePaused,
 			settings: this.getSettingsForPlayer(player),
-			AVAILABLE_LOCATION_PACKS: Locations.AVAILABLE_LOCATION_PACKS,
+			AVAILABLE_WORDPACKS: Wordpacks.AVAILABLE_WORDPACKS,
 			currentRoundNum: this.currentRoundNum,
 			questionHistory: this.questionHistory,
 			accusationLog: this.accusationLog,
@@ -2128,6 +2129,28 @@ const pickRandomLeastUsedPlayer = (players, getScore) => {
 		}
 	}
 	return candidates[Math.floor(Math.random() * candidates.length)] || null;
+};
+
+const normalizeWordEntry = (word) => {
+	if (!word) return null;
+	if (typeof word === "string") {
+		return {
+			id: word,
+			label: word,
+		};
+	}
+
+	const label =
+		typeof word.label === "string"
+			? word.label
+			: typeof word.defaultLabel === "string"
+				? word.defaultLabel
+				: String(word.id || "");
+
+	return {
+		id: String(word.id || label),
+		label,
+	};
 };
 
 const getAccusationLabel = (targetType) => {

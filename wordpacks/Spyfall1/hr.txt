@@ -1,0 +1,28 @@
+Avion
+Banka
+Plaža
+Katedrala
+Cirkusni Šator
+Zabava Korporacije
+Križarska Vojska
+Kockarnica
+Wellness centar/Toplice/Lječilište
+Ambasada
+Bolnica
+Hotel
+Vojarna
+Filmski Studio
+Prekooceanski Brod
+Putnički Vlak
+Gusarski Brod
+Polarna Stanica
+Policijska Stanica
+Restoran
+Škola
+Benzinska Stanica
+Svemirska Stanica
+Podmornica
+Supermarket
+Kazalište
+Sveučilište
+Posada II. Svjetskog Rata

@@ -1,7 +1,8 @@
 class Player {
-	constructor(socket, authToken) {
+	constructor(socket, authToken, locale = "en") {
 		this.socket = socket;
 		this.authToken = authToken;
+		this.locale = normalizeLocale(locale);
 		this.name = "";
 		this.connected = true;
 		this.disconnectTimeout = null;
@@ -19,6 +20,10 @@ class Player {
 		this.guessesRemaining = 0;
 		this.accusationsRemaining = 0;
 		this.timeoutGuessDone = false;
+	};
+
+	setLocale = (locale) => {
+		this.locale = normalizeLocale(locale);
 	};
 
 	clearDisconnectTimeout = () => {
@@ -48,5 +53,10 @@ class Player {
 		timeoutGuessDone: this.timeoutGuessDone,
 	});
 }
+
+const normalizeLocale = (locale) => {
+	const normalized = String(locale || "en").trim();
+	return normalized || "en";
+};
 
 module.exports = Player;

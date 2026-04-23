@@ -11,15 +11,14 @@ import { useCurrentLocale, useI18n } from "../locales";
 const InGame = ({ gameState, socket }) => {
 	const {
 		me,
-		location,
-		locationList,
+		word,
+		wordList,
 		players,
 		timeLeft: latestServerTimeLeft,
 		timePaused,
 		settings,
 		roundPhase,
 		spyOffer,
-		roundMode,
 		questionHistory,
 		accusationLog,
 		activeQuestion,
@@ -30,13 +29,12 @@ const InGame = ({ gameState, socket }) => {
 
 	const [timeLeft, setTimeLeft] = useState(latestServerTimeLeft);
 	const [spyGuessMode, setSpyGuessMode] = useState(false);
-	const [selectedGuessWord, setSelectedGuessWord] = useState("");
+	const [selectedGuessWordId, setSelectedGuessWordId] = useState("");
 	const [wordMarks, setWordMarks] = useState({});
 	const t = useI18n();
 	const lang = useCurrentLocale();
 	const isSpy = me.role === "spy";
 	const isObserver = Boolean(me.isObserver);
-	const isCustomRound = roundMode === "custom";
 	const isRoundActive = roundPhase === "active";
 	const isTimeoutGuessPhase = roundPhase === "timeout-guess";
 	const isRevealedSpyGuessPhase = roundPhase === "revealed-spy-guess";
@@ -50,7 +48,9 @@ const InGame = ({ gameState, socket }) => {
 		(isRoundActive || isGuessPhase) &&
 		me.guessesRemaining > 0 &&
 		(!isGuessPhase || !me.timeoutGuessDone);
-	const locationListKey = locationList.join("\u0000");
+	const wordListKey = wordList.map(({ id }) => id).join("\u0000");
+	const selectedGuessWord =
+		wordList.find(({ id }) => id === selectedGuessWordId)?.label || "";
 
 	useEffect(() => {
 		logEvent("player-roundCount", gameState.currentRoundNum + 1);
@@ -71,20 +71,20 @@ const InGame = ({ gameState, socket }) => {
 
 	useEffect(() => {
 		setSpyGuessMode(false);
-		setSelectedGuessWord("");
+		setSelectedGuessWordId("");
 		setWordMarks({});
-	}, [currentRoundNum, locationListKey]);
+	}, [currentRoundNum, wordListKey]);
 
 	useEffect(() => {
-		if (!locationList.includes(selectedGuessWord)) {
-			setSelectedGuessWord("");
+		if (!wordList.some(({ id }) => id === selectedGuessWordId)) {
+			setSelectedGuessWordId("");
 		}
-	}, [locationList, selectedGuessWord]);
+	}, [wordList, selectedGuessWordId]);
 
 	useEffect(() => {
 		if (!canGuessNow) {
 			setSpyGuessMode(false);
-			setSelectedGuessWord("");
+			setSelectedGuessWordId("");
 		}
 	}, [canGuessNow]);
 
@@ -113,22 +113,22 @@ const InGame = ({ gameState, socket }) => {
 		socket.emit("togglePlayerObserver", playerName);
 	};
 
-	const handleCycleWordMark = (word) => {
+	const handleCycleWordMark = (wordEntry) => {
 		if (spyGuessMode) {
-			setSelectedGuessWord(word);
+			setSelectedGuessWordId(wordEntry.id);
 			return;
 		}
 
 		setWordMarks((current) => {
-			const nextValue = ((current[word] || 0) + 1) % 3;
+			const nextValue = ((current[wordEntry.id] || 0) + 1) % 3;
 			if (nextValue === 0) {
 				const next = { ...current };
-				delete next[word];
+				delete next[wordEntry.id];
 				return next;
 			}
 			return {
 				...current,
-				[word]: nextValue,
+				[wordEntry.id]: nextValue,
 			};
 		});
 	};
@@ -136,19 +136,19 @@ const InGame = ({ gameState, socket }) => {
 	const handleStartSpyGuess = () => {
 		if (!canGuessNow) return;
 		setSpyGuessMode(true);
-		setSelectedGuessWord("");
+		setSelectedGuessWordId("");
 	};
 
 	const handleCancelSpyGuess = () => {
 		setSpyGuessMode(false);
-		setSelectedGuessWord("");
+		setSelectedGuessWordId("");
 	};
 
 	const handleConfirmSpyGuess = () => {
-		if (!selectedGuessWord) return;
-		socket.emit("submitSpyGuess", selectedGuessWord);
+		if (!selectedGuessWordId) return;
+		socket.emit("submitSpyGuess", selectedGuessWordId);
 		setSpyGuessMode(false);
-		setSelectedGuessWord("");
+		setSelectedGuessWordId("");
 	};
 
 	return (
@@ -188,12 +188,11 @@ const InGame = ({ gameState, socket }) => {
 
 			<AccessCode code={gameState.code} />
 
-			<HideableContainer title={"Your Role"} initialHidden={false}>
+			<HideableContainer title={"Your Status"} initialHidden={false}>
 				<div className="status-container-content">
 					<RolePanel
 						me={me}
-						location={location}
-						isCustomRound={isCustomRound}
+						word={word}
 						isSpy={isSpy}
 						isObserver={isObserver}
 						isSpyOfferPhase={isSpyOfferPhase}
@@ -374,15 +373,13 @@ const InGame = ({ gameState, socket }) => {
 
 			<div className="u-cf"></div>
 
-			{isRoundToolsVisible && locationList.length > 0 && (
+			{isRoundToolsVisible && wordList.length > 0 && (
 				<>
-					<h5>{isCustomRound ? "Word Reference" : t("ui.location reference")}</h5>
-					<LocationReferenceList
-						locationList={locationList}
-						isCustomRound={isCustomRound}
-						t={t}
+					<h5>Word Reference</h5>
+					<WordReferenceList
+						wordList={wordList}
 						spyGuessMode={spyGuessMode}
-						selectedGuessWord={selectedGuessWord}
+						selectedGuessWordId={selectedGuessWordId}
 						wordMarks={wordMarks}
 						onWordClick={handleCycleWordMark}
 					/>
@@ -418,8 +415,7 @@ const InGame = ({ gameState, socket }) => {
 
 const RolePanel = ({
 	me,
-	location,
-	isCustomRound,
+	word,
 	isSpy,
 	isObserver,
 	isSpyOfferPhase,
@@ -534,20 +530,12 @@ const RolePanel = ({
 				className="player-status player-status-not-spy"
 				dangerouslySetInnerHTML={{ __html: t("ui.you are not the spy") }}
 			></div>
-			{location && (
+			{word && (
 				<div className="current-location">
-					<div className="current-location-header">
-						{isCustomRound ? "Chosen word:" : `${t("ui.the location")}:`}
-					</div>
+					<div className="current-location-header">Chosen word:</div>
 					<div className="current-location-name">
-						{renderRoundLabel(location.name, isCustomRound, t)}
+						{word.label}
 					</div>
-				</div>
-			)}
-			{!isCustomRound && me.role && (
-				<div className="current-role">
-					<div className="current-role-header">{t("ui.your role")}: </div>
-					<div className="current-role-name">{t(me.role)}</div>
 				</div>
 			)}
 		</>
@@ -931,21 +919,19 @@ const AccusationPanel = ({
 	);
 };
 
-const LocationReferenceList = ({
-	locationList,
-	isCustomRound,
-	t,
+const WordReferenceList = ({
+	wordList,
 	spyGuessMode,
-	selectedGuessWord,
+	selectedGuessWordId,
 	wordMarks,
 	onWordClick,
 }) => (
 	<ul className="location-list">
-		{locationList.map((name) => {
-			const isSelected = selectedGuessWord === name;
-			const markState = wordMarks[name] || 0;
+		{wordList.map((word) => {
+			const isSelected = selectedGuessWordId === word.id;
+			const markState = wordMarks[word.id] || 0;
 			return (
-				<li key={name} onClick={() => onWordClick(name)}>
+				<li key={word.id} onClick={() => onWordClick(word)}>
 					<div
 						className={getWordMarkClassName(markState)}
 						style={
@@ -954,7 +940,7 @@ const LocationReferenceList = ({
 								: undefined
 						}
 					>
-						{renderRoundLabel(name, isCustomRound, t)}
+						{word.label}
 						{spyGuessMode && isSelected && " (selected guess)"}
 					</div>
 				</li>
@@ -968,9 +954,6 @@ const getWordMarkClassName = (markState) => {
 	if (markState === 2) return "box box-mark-pink";
 	return "box";
 };
-
-const renderRoundLabel = (value, isCustomRound, t) =>
-	isCustomRound ? value : t(value);
 
 const formatRevealedSpyStatus = (status) => {
 	if (status === "spy") return "spy";

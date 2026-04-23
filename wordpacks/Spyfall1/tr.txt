@@ -1,0 +1,28 @@
+Uçak
+Banka
+Plaj
+Katedral
+Sirk Çadırı
+İşyeri Partisi
+Haçlı Ordusu
+Kumarhane
+Spa
+Elçilik
+Hastane
+Otel
+Askeri Üs
+Film Stüdyosu
+Yolcu Gemisi
+Yolcu Treni
+Korsan Gemisi
+Kutup Araştırma Merkezi
+Polis Merkezi
+Restoran
+Okul
+Benzin İstasyonu
+Uzay İstasyonu
+Denizaltı
+Süpermarket
+Tiyatro
+Üniversite
+II. Dünya Savaşı Birliği

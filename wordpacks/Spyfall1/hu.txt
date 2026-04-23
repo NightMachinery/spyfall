@@ -1,0 +1,28 @@
+Repülőgép
+Bank
+Strand
+Katedrális
+Cirkuszi Sátor
+Vállalati Buli
+Keresztes Hadsereg
+Kaszinó
+Szépségszalon
+Nagykövetség
+Kórház
+Hotel
+Katonai Bázis
+Filmstúdió
+Tengerjáró
+Személyvonat
+Kalózhajó
+Sarkköri Állomás
+Rendőrörs
+Étterem
+Iskola
+Benzinkút
+Űrállomás
+Tengeralattjáró
+Bevásárlóközpont
+Színház
+Egyetem
+Második Világháborús Osztag

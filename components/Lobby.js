@@ -21,7 +21,7 @@ const Lobby = ({ gameState, socket }) => {
 	const handleStartGame = () => {
 		socket.emit("startGame");
 		logEvent("lobby-numberOfPlayers", gameState.players.length);
-		logEvent("lobby-locationPack", gameState.settings.locationPack);
+		logEvent("lobby-wordpack", gameState.settings.wordpack);
 		logEvent("lobby-timeLimit", gameState.settings.timeLimit);
 	};
 

@@ -1,0 +1,28 @@
+Flugzeug
+Bank
+Strand
+Kathedrale
+Zirkuszelt
+Firmenfeier
+Heerlager in den Kreuzzügen
+Kasino
+Wellness-Oase
+Botschaft
+Krankenhaus
+Hotel
+Militärbasis
+Filmstudio
+Ozeandampfer
+Passagierzug
+Piratenschiff
+Polarstation
+Polizeirevier
+Restaurant
+Schule
+Autowerkstatt
+Raumstation
+U-Boot
+Supermarkt
+Theater
+Universität
+Truppenlager im zweiten Weltkrieg

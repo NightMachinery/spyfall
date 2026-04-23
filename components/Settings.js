@@ -1,7 +1,7 @@
 import React, { useMemo, useState, useEffect } from "react";
 
 const Settings = ({ gameState, socket }) => {
-	const { settings, AVAILABLE_LOCATION_PACKS, players, me } = gameState;
+	const { settings, AVAILABLE_WORDPACKS, players, me } = gameState;
 	const canEdit = Boolean(me.isAdmin);
 	const namedPlayerCount = players.filter(
 		(player) => player.name && !player.manualObserver,
@@ -42,10 +42,10 @@ const Settings = ({ gameState, socket }) => {
 			/>
 			<br />
 
-			<LocationPack
-				onSetLocationPack={(packId) => updateSettings({ locationPack: packId })}
-				serverPackId={settings.locationPack}
-				locationPackList={AVAILABLE_LOCATION_PACKS}
+			<WordpackSelect
+				onSetWordpack={(wordpackId) => updateSettings({ wordpack: wordpackId })}
+				serverWordpack={settings.wordpack}
+				wordpackList={AVAILABLE_WORDPACKS}
 				disabled={!canEdit}
 			/>
 
@@ -123,35 +123,35 @@ const TimeLimit = ({ onSetMinutes, serverMinutes, disabled }) => {
 	);
 };
 
-const LocationPack = ({
-	onSetLocationPack,
-	locationPackList,
-	serverPackId,
+const WordpackSelect = ({
+	onSetWordpack,
+	wordpackList,
+	serverWordpack,
 	disabled,
 }) => {
-	const [selectedPackId, setSelectedPackId] = useState(serverPackId);
+	const [selectedWordpack, setSelectedWordpack] = useState(serverWordpack);
 
-	const handleChange = (newPackId) => {
-		setSelectedPackId(newPackId);
-		onSetLocationPack(newPackId);
+	const handleChange = (nextWordpack) => {
+		setSelectedWordpack(nextWordpack);
+		onSetWordpack(nextWordpack);
 	};
 
 	useEffect(() => {
-		setSelectedPackId(serverPackId);
-	}, [serverPackId]);
+		setSelectedWordpack(serverWordpack);
+	}, [serverWordpack]);
 
 	return (
 		<div>
-			<label htmlFor="location-pack">Location Pack:</label>
+			<label htmlFor="wordpack">Wordpack:</label>
 			<select
 				className="u-full-width"
-				id="location-pack"
-				value={selectedPackId}
+				id="wordpack"
+				value={selectedWordpack}
 				onChange={({ target: { value } }) => handleChange(value)}
-				style={{ maxWidth: "10em" }}
+				style={{ maxWidth: "12em" }}
 				disabled={disabled}
 			>
-				{locationPackList.map(({ id, name }) => (
+				{wordpackList.map(({ id, name }) => (
 					<option key={id} value={id}>
 						{name}
 					</option>
@@ -305,7 +305,7 @@ const QuestionSettings = ({ settings, disabled, onUpdateSettings }) => (
 	</div>
 );
 
-const AccusationSettings = ({ settings, disabled, onUpdateSettings }) => (
+const AccusationSettings = () => (
 	<div style={{ marginTop: "1em" }}>
 		<label>Accusations:</label>
 		<div className="settings-help">
@@ -358,8 +358,7 @@ const CustomWordSettings = ({
 				/>
 				{!disabled && (
 					<div className="settings-help">
-						{customWordCount} words entered. A fresh subset is sampled each
-						round.
+						{customWordCount} words entered. A fresh subset is sampled each round.
 					</div>
 				)}
 				<label htmlFor="custom-subset-size">Subset size:</label>
@@ -375,8 +374,8 @@ const CustomWordSettings = ({
 					}
 				/>
 				<div className="settings-help">
-					Roles are hidden in this mode. Everyone sees the sampled word list,
-					but only non-spies see the chosen word.
+					Roles are hidden in this mode. Everyone sees the sampled word list, but
+					only non-spies see the chosen word.
 				</div>
 			</div>
 		)}

@@ -1,0 +1,28 @@
+Avião
+Banco
+Praia
+Catedral
+Tenda do Circo
+Festa de Empresa
+Exército das Cruzadas
+Casino
+Spa
+Embaixada
+Hospital
+Hotel
+Base Militar
+Estúdio de Cinema
+Cruzeiro
+Comboio de Passageiro
+Navio de Piratas
+Estação Polar de Investigação
+Esquadra da Policia
+Restaurante
+Escola
+Estação de Serviço
+Estação Espacial
+Submarino
+Supermercado
+Teatro
+Universidade
+Esquadrão da II Guerra Mundial

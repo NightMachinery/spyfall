@@ -1,0 +1,28 @@
+Aereoplano
+Banca
+Spiaggia
+Cattedrale
+Tenda Del Circo
+Festa Aziendale
+Esercito Dei Crociati
+Casinò
+Centro Benessere
+Ambasciata
+Ospedale
+Hotel
+Base MIlitare
+Studio Televisivo
+Transatlantico
+Treno Passeggeri
+Nave Pirata
+Stazione Polare
+Stazione di Polizia
+Ristorante
+Scuola
+Stazione di Servizio
+Stazione Spaziale
+Sottomarino
+Supermercato
+Teatro
+Università
+Squadra della Seconda Guerra Mondiale

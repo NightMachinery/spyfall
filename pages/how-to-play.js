@@ -16,8 +16,8 @@ const HowToPlay = () => {
 					</p>
 					<p>
 						Depending on room settings, a round can have zero, one, or multiple
-						spies. Non-spies receive the shared location and a role at that
-						location. Spies do not receive the location.
+						spies. Non-spies receive the shared secret word from the selected
+						wordpack. Spies do not receive the word.
 					</p>
 					{externalHelpEnabled ? (
 						<>
@@ -44,7 +44,7 @@ const HowToPlay = () => {
 					<p>
 						The non-spies win by correctly identifying every spy. A revealed spy can
 						no longer ask or answer questions, but may still use any remaining
-						guesses to name the hidden location or chosen word. Spies also win if a
+						guesses to name the hidden word. Spies also win if a
 						guess is correct before the round ends.
 					</p>
 					<p>
